@@ -114,13 +114,15 @@ namespace ExamApp
                             string roleName = reader.GetString(3);
 
                             // Преобразуем строковое название роли в перечисление Role
-                            UserSession.CurrentRole = roleName switch
-                            {
-                                "Администратор" => UserSession.Role.admin,
-                                "Менеджер" => UserSession.Role.manager,
-                                "Клиент" => UserSession.Role.user,
-                                _ => UserSession.Role.guest
-                            };
+                            if (roleName == "Администратор")
+                                UserSession.CurrentRole = UserSession.Role.admin;
+                            else if (roleName == "Менеджер")
+                                UserSession.CurrentRole = UserSession.Role.manager;
+                            else if (roleName == "Клиент")
+                                UserSession.CurrentRole = UserSession.Role.user;
+                            else
+                                UserSession.CurrentRole = UserSession.Role.guest;
+
                             MessageBox.Show($"Добро пожаловать, {UserSession.FullName}!", "Успех", MessageBoxButtons.OK, MessageBoxIcon.Information);
                             OpenMainForm();
                         }
@@ -317,21 +319,20 @@ namespace ExamApp
                 {
                     while (reader.Read())
                     {
-                        allProducts.Add(new Product
-                        {
-                            Id = reader.GetInt32(0),
-                            Article = reader.GetString(1),
-                            Name = reader.GetString(2),
-                            Price = reader.GetDecimal(3),
-                            Discount = reader.GetDecimal(4),
-                            Count = reader.GetInt32(5),
-                            Description = reader.GetString(6),
-                            PhotoPath = reader.IsDBNull(7) ? "images/picture.png" : reader.GetString(7),
-                            Supplier = reader.GetString(8),
-                            Unit = reader.GetString(9),
-                            Fabricator = reader.GetString(10),
-                            Category = reader.GetString(11)
-                        });
+                        Product product = new Product();
+                        product.Id = reader.GetInt32(0);
+                        product.Article = reader.GetString(1);
+                        product.Name = reader.GetString(2);
+                        product.Price = reader.GetDecimal(3);
+                        product.Discount = reader.GetDecimal(4);
+                        product.Count = reader.GetInt32(5);
+                        product.Description = reader.GetString(6);
+                        product.PhotoPath = reader.IsDBNull(7) ? "images/picture.png" : reader.GetString(7);
+                        product.Supplier = reader.GetString(8);
+                        product.Unit = reader.GetString(9);
+                        product.Fabricator = reader.GetString(10);
+                        product.Category = reader.GetString(11);
+                        allProducts.Add(product);
                     }
                 }
             }
@@ -343,7 +344,7 @@ namespace ExamApp
         // Результат сохраняет в filteredProducts и вызывает отображение текущей страницы.
         private void ApplyFilters()
         {
-            var query = allProducts.AsEnumerable();
+            IEnumerable<Product> query = allProducts;
 
             // Поиск по всем текстовым полям (артикул, название, описание, категория, производитель, поставщик)
             if (txtSearch != null && !string.IsNullOrEmpty(txtSearch.Text))
@@ -371,10 +372,14 @@ namespace ExamApp
             if (cmbSort != null)
             {
                 string sort = cmbSort.SelectedItem?.ToString();
-                if (sort == "Название (А-Я)") query = query.OrderBy(p => p.Name);
-                else if (sort == "Название (Я-А)") query = query.OrderByDescending(p => p.Name);
-                else if (sort == "Цена (возр.)") query = query.OrderBy(p => p.Price * (1 - p.Discount / 100));
-                else if (sort == "Цена (убыв.)") query = query.OrderByDescending(p => p.Price * (1 - p.Discount / 100));
+                if (sort == "Название (А-Я)")
+                    query = query.OrderBy(p => p.Name);
+                else if (sort == "Название (Я-А)")
+                    query = query.OrderByDescending(p => p.Name);
+                else if (sort == "Цена (возр.)")
+                    query = query.OrderBy(p => p.Price * (1 - p.Discount / 100));
+                else if (sort == "Цена (убыв.)")
+                    query = query.OrderByDescending(p => p.Price * (1 - p.Discount / 100));
             }
             filteredProducts = query.ToList();
             RenderCurrentPage();
@@ -391,8 +396,8 @@ namespace ExamApp
             if (currentPage >= totalPages) currentPage = totalPages - 1;
             if (currentPage < 0) currentPage = 0;
 
-            var pageProducts = filteredProducts.Skip(currentPage * pageSize).Take(pageSize).ToList();
-            foreach (var p in pageProducts)
+            List<Product> pageProducts = filteredProducts.Skip(currentPage * pageSize).Take(pageSize).ToList();
+            foreach (Product p in pageProducts)
                 flowPanel.Controls.Add(CreateProductCard(p));
 
             lblPageInfo.Text = $"Страница {currentPage + 1} из {totalPages} (всего {filteredProducts.Count} товаров)";
@@ -401,11 +406,23 @@ namespace ExamApp
         }
 
         // Обработчики кнопок пагинации
-        private void BtnPrev_Click(object sender, EventArgs e) { if (currentPage > 0) { currentPage--; RenderCurrentPage(); } }
+        private void BtnPrev_Click(object sender, EventArgs e)
+        {
+            if (currentPage > 0)
+            {
+                currentPage--;
+                RenderCurrentPage();
+            }
+        }
+
         private void BtnNext_Click(object sender, EventArgs e)
         {
             int totalPages = (int)Math.Ceiling((double)filteredProducts.Count / pageSize);
-            if (currentPage < totalPages - 1) { currentPage++; RenderCurrentPage(); }
+            if (currentPage < totalPages - 1)
+            {
+                currentPage++;
+                RenderCurrentPage();
+            }
         }
 
         // Создаёт панель (карточку) для одного товара.
@@ -551,8 +568,13 @@ namespace ExamApp
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
             InitializeDynamicControls();
-            if (productId > 0) LoadProductData();
-            else { txtId.Text = "(новый)"; txtId.ReadOnly = true; } // ID не отображается для нового товара
+            if (productId > 0)
+                LoadProductData();
+            else
+            {
+                txtId.Text = "(новый)";
+                txtId.ReadOnly = true;
+            }
         }
 
         // Динамическое создание всех полей формы: текстовые поля, выпадающие списки, numericUpDown, кнопки.
@@ -630,7 +652,8 @@ namespace ExamApp
                 BorderStyle = BorderStyle.FixedSingle
             };
             string defaultImg = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "images", "picture.png");
-            if (File.Exists(defaultImg)) pbImage.Image = Image.FromFile(defaultImg);
+            if (File.Exists(defaultImg))
+                pbImage.Image = Image.FromFile(defaultImg);
             btnLoadImage = new Button { Text = "Загрузить фото", Location = new Point(450, 260), Size = new Size(200, 30) };
             btnLoadImage.Click += BtnLoadImage_Click;
 
@@ -708,7 +731,8 @@ namespace ExamApp
                             if (oldImagePath != null)
                             {
                                 string full = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, oldImagePath.Replace('/', '\\'));
-                                if (File.Exists(full)) pbImage.Image = Image.FromFile(full);
+                                if (File.Exists(full))
+                                    pbImage.Image = Image.FromFile(full);
                             }
                         }
                     }
@@ -751,13 +775,18 @@ namespace ExamApp
             {
                 // Создаём папку images, если её нет
                 string targetDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "images");
-                if (!Directory.Exists(targetDir)) Directory.CreateDirectory(targetDir);
+                if (!Directory.Exists(targetDir))
+                    Directory.CreateDirectory(targetDir);
                 string targetPath = Path.Combine(targetDir, newImageFileName);
                 File.Copy(ofd.FileName, targetPath, true);
                 imagePath = $"images/{newImageFileName}";
                 // Удаляем старое изображение, если оно было
-                if (oldImagePath != null && File.Exists(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, oldImagePath.Replace('/', '\\'))))
-                    File.Delete(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, oldImagePath.Replace('/', '\\')));
+                if (oldImagePath != null)
+                {
+                    string oldFull = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, oldImagePath.Replace('/', '\\'));
+                    if (File.Exists(oldFull))
+                        File.Delete(oldFull);
+                }
             }
 
             using (SqlConnection conn = new SqlConnection(ConnString))
@@ -779,7 +808,7 @@ namespace ExamApp
                         cmd.Parameters.AddWithValue("@price", numPrice.Value);
                         cmd.Parameters.AddWithValue("@count", (int)numCount.Value);
                         cmd.Parameters.AddWithValue("@disc", numDiscount.Value);
-                        cmd.Parameters.AddWithValue("@photo", (object)imagePath ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@photo", imagePath != null ? (object)imagePath : DBNull.Value);
                         cmd.ExecuteNonQuery();
                         MessageBox.Show("Товар добавлен.", "Успех", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     }
@@ -802,7 +831,7 @@ namespace ExamApp
                         cmd.Parameters.AddWithValue("@price", numPrice.Value);
                         cmd.Parameters.AddWithValue("@count", (int)numCount.Value);
                         cmd.Parameters.AddWithValue("@disc", numDiscount.Value);
-                        cmd.Parameters.AddWithValue("@photo", (object)imagePath ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@photo", imagePath != null ? (object)imagePath : DBNull.Value);
                         cmd.ExecuteNonQuery();
                         MessageBox.Show("Товар обновлён.", "Успех", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     }
@@ -822,7 +851,8 @@ namespace ExamApp
                 using (SqlCommand cmd = new SqlCommand(check, conn))
                 {
                     cmd.Parameters.AddWithValue("@id", productId);
-                    if ((int)cmd.ExecuteScalar() > 0)
+                    int cnt = (int)cmd.ExecuteScalar();
+                    if (cnt > 0)
                     {
                         MessageBox.Show("Невозможно удалить товар: он присутствует в заказах.", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
                         return;
@@ -908,16 +938,15 @@ namespace ExamApp
                 {
                     while (reader.Read())
                     {
-                        allOrders.Add(new Order
-                        {
-                            Id = reader.GetInt32(0),
-                            OrderDate = reader.GetDateTime(1),
-                            DeliveryDate = reader.IsDBNull(2) ? (DateTime?)null : reader.GetDateTime(2),
-                            PickupPoint = reader.GetString(3),
-                            StatusId = reader.GetInt32(4),
-                            StatusName = reader.GetString(5),
-                            ClientFullName = reader.GetString(6)
-                        });
+                        Order order = new Order();
+                        order.Id = reader.GetInt32(0);
+                        order.OrderDate = reader.GetDateTime(1);
+                        order.DeliveryDate = reader.IsDBNull(2) ? (DateTime?)null : reader.GetDateTime(2);
+                        order.PickupPoint = reader.GetString(3);
+                        order.StatusId = reader.GetInt32(4);
+                        order.StatusName = reader.GetString(5);
+                        order.ClientFullName = reader.GetString(6);
+                        allOrders.Add(order);
                     }
                 }
             }
@@ -929,7 +958,7 @@ namespace ExamApp
         private void RenderOrders()
         {
             flowOrders.Controls.Clear();
-            foreach (var order in allOrders)
+            foreach (Order order in allOrders)
             {
                 Panel card = new Panel { Width = flowOrders.Width - 25, Height = 120, Margin = new Padding(5), BorderStyle = BorderStyle.FixedSingle };
                 Label lblId = new Label { Text = $"Заказ №{order.Id}", Font = new Font("Times New Roman", 12, FontStyle.Bold), Location = new Point(10, 5), Size = new Size(150, 25) };
@@ -937,7 +966,7 @@ namespace ExamApp
                 Label lblDate = new Label { Text = $"Дата заказа: {order.OrderDate:dd.MM.yyyy}", Location = new Point(10, 55), Size = new Size(200, 20) };
                 Label lblDelivery = new Label
                 {
-                    Text = order.DeliveryDate.HasValue ? $"Доставка: {order.DeliveryDate:dd.MM.yyyy}" : "Доставка не назначена",
+                    Text = order.DeliveryDate.HasValue ? $"Доставка: {order.DeliveryDate.Value:dd.MM.yyyy}" : "Доставка не назначена",
                     Location = new Point(10, 80),
                     Size = new Size(200, 20)
                 };
@@ -1015,7 +1044,8 @@ namespace ExamApp
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
             InitializeControls();
-            if (orderId > 0) LoadOrderData();
+            if (orderId > 0)
+                LoadOrderData();
         }
 
         // Динамическое создание элементов формы заказа
@@ -1110,7 +1140,11 @@ namespace ExamApp
                         if (reader.Read())
                         {
                             dtpOrderDate.Value = reader.GetDateTime(0);
-                            if (!reader.IsDBNull(1)) { dtpDeliveryDate.Value = reader.GetDateTime(1); dtpDeliveryDate.Checked = true; }
+                            if (!reader.IsDBNull(1))
+                            {
+                                dtpDeliveryDate.Value = reader.GetDateTime(1);
+                                dtpDeliveryDate.Checked = true;
+                            }
                             txtPickupPoint.Text = reader.GetString(2);
                             cmbStatus.SelectedValue = reader.GetInt32(3);
                             cmbClient.SelectedValue = reader.GetInt32(4);
@@ -1128,7 +1162,7 @@ namespace ExamApp
                 MessageBox.Show("Заполните все обязательные поля.", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
-            DateTime? delivery = dtpDeliveryDate.Checked ? dtpDeliveryDate.Value : (DateTime?)null;
+            DateTime? delivery = dtpDeliveryDate.Checked ? (DateTime?)dtpDeliveryDate.Value : null;
             using (SqlConnection conn = new SqlConnection(ConnString))
             {
                 conn.Open();
@@ -1139,7 +1173,7 @@ namespace ExamApp
                     using (SqlCommand cmd = new SqlCommand(sql, conn))
                     {
                         cmd.Parameters.AddWithValue("@od", dtpOrderDate.Value);
-                        cmd.Parameters.AddWithValue("@dd", (object)delivery ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@dd", delivery.HasValue ? (object)delivery.Value : DBNull.Value);
                         cmd.Parameters.AddWithValue("@pp", txtPickupPoint.Text);
                         cmd.Parameters.AddWithValue("@sid", (int)cmbStatus.SelectedValue);
                         cmd.Parameters.AddWithValue("@cid", (int)cmbClient.SelectedValue);
@@ -1154,7 +1188,7 @@ namespace ExamApp
                     {
                         cmd.Parameters.AddWithValue("@id", orderId);
                         cmd.Parameters.AddWithValue("@od", dtpOrderDate.Value);
-                        cmd.Parameters.AddWithValue("@dd", (object)delivery ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@dd", delivery.HasValue ? (object)delivery.Value : DBNull.Value);
                         cmd.Parameters.AddWithValue("@pp", txtPickupPoint.Text);
                         cmd.Parameters.AddWithValue("@sid", (int)cmbStatus.SelectedValue);
                         cmd.Parameters.AddWithValue("@cid", (int)cmbClient.SelectedValue);
