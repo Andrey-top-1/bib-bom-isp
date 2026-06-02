@@ -1,4 +1,4 @@
-Файл 1: AuthForm.cs
+Файл 1: AuthForm.cs (исправлен)
 csharp
 using System;
 using System.Data.SqlClient;
@@ -11,21 +11,14 @@ namespace ExamApp
     // Сохраняет роль и полное имя после успешной авторизации.
     public static class UserSession
     {
-        // Перечисление всех возможных ролей в системе
         public enum Role { guest, user, manager, admin }
-
-        // Текущая роль пользователя, по умолчанию гость (без авторизации)
         public static Role CurrentRole { get; set; } = Role.guest;
-
-        // Полное имя (Фамилия Имя Отчество), для гостя – "Гость"
         public static string FullName { get; set; } = "Гость";
     }
 
-    // Форма авторизации. Пользователь вводит логин/пароль или входит как гость.
-    // После успешного входа сохраняет роль и ФИО в UserSession и открывает главную форму.
     public partial class AuthForm : Form
     {
-        // Строка подключения к базе данных (замените YOUR_SERVER на имя вашего сервера)
+        // Строка подключения к базе данных (замените YOUR_SERVER)
         private const string ConnString = "Data Source=YOUR_SERVER;Initial Catalog=DEE2;Integrated Security=True;Encrypt=False";
 
         private TextBox txtLogin, txtPassword;
@@ -33,11 +26,10 @@ namespace ExamApp
 
         public AuthForm()
         {
-            InitializeComponents(); // Динамическое создание элементов формы
+            InitializeComponents();
         }
 
-        // Создаёт все элементы управления формы программно (без дизайнера).
-        // Это требование экзамена – динамическое создание интерфейса.
+        // Динамическое создание элементов формы (без дизайнера)
         private void InitializeComponents()
         {
             this.Text = "Авторизация";
@@ -46,7 +38,6 @@ namespace ExamApp
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
 
-            // Заголовок формы
             Label lblTitle = new Label
             {
                 Text = "Вход в систему",
@@ -55,19 +46,15 @@ namespace ExamApp
                 Size = new Size(200, 30)
             };
 
-            // Поле для ввода логина
             Label lblLogin = new Label { Text = "Логин:", Location = new Point(60, 80), Size = new Size(80, 25), Font = new Font("Times New Roman", 12) };
             txtLogin = new TextBox { Location = new Point(150, 78), Size = new Size(180, 25), Font = new Font("Times New Roman", 12) };
 
-            // Поле для ввода пароля (скрытие символов)
             Label lblPassword = new Label { Text = "Пароль:", Location = new Point(60, 120), Size = new Size(80, 25), Font = new Font("Times New Roman", 12) };
             txtPassword = new TextBox { Location = new Point(150, 118), Size = new Size(180, 25), Font = new Font("Times New Roman", 12), PasswordChar = '*' };
 
-            // Кнопка входа для зарегистрированных пользователей
             btnLogin = new Button { Text = "Войти", Location = new Point(100, 180), Size = new Size(100, 40), BackColor = Color.LightGreen };
             btnLogin.Click += BtnLogin_Click;
 
-            // Кнопка входа как гость – позволяет просматривать товары без авторизации
             btnGuest = new Button { Text = "Гость", Location = new Point(220, 180), Size = new Size(100, 40) };
             btnGuest.Click += (s, e) => { UserSession.CurrentRole = UserSession.Role.guest; OpenMainForm(); };
 
@@ -77,14 +64,12 @@ namespace ExamApp
             Controls.Add(btnLogin); Controls.Add(btnGuest);
         }
 
-        // Обработчик нажатия кнопки "Войти".
-        // Проверяет логин/пароль в БД, извлекает роль и ФИО, сохраняет в сессию.
+        // Проверка логина/пароля, извлечение роли и ФИО с защитой от NULL
         private void BtnLogin_Click(object sender, EventArgs e)
         {
             string login = txtLogin.Text.Trim();
             string password = txtPassword.Text.Trim();
 
-            // Валидация – поля не должны быть пустыми
             if (string.IsNullOrEmpty(login) || string.IsNullOrEmpty(password))
             {
                 MessageBox.Show("Введите логин и пароль!", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -94,7 +79,6 @@ namespace ExamApp
             using (SqlConnection conn = new SqlConnection(ConnString))
             {
                 conn.Open();
-                // Запрос: выбираем ФИО и название роли, связывая таблицы users, credentials, user_roles
                 string sql = @"SELECT u.surname, u.name, u.patronymic, ur.name 
                                FROM users u
                                INNER JOIN credentials c ON c.user_id = u.user_id
@@ -102,18 +86,19 @@ namespace ExamApp
                                WHERE c.login = @login AND c.password = @password";
                 using (SqlCommand cmd = new SqlCommand(sql, conn))
                 {
-                    // Используем параметры для защиты от SQL-инъекций
                     cmd.Parameters.AddWithValue("@login", login);
                     cmd.Parameters.AddWithValue("@password", password);
                     using (SqlDataReader reader = cmd.ExecuteReader())
                     {
                         if (reader.Read())
                         {
-                            // Формируем полное имя
-                            UserSession.FullName = $"{reader.GetString(0)} {reader.GetString(1)} {reader.GetString(2)}";
-                            string roleName = reader.GetString(3);
+                            // Чтение ФИО с проверкой на NULL
+                            string surname = reader.IsDBNull(0) ? "" : reader.GetString(0);
+                            string name = reader.IsDBNull(1) ? "" : reader.GetString(1);
+                            string patronymic = reader.IsDBNull(2) ? "" : reader.GetString(2);
+                            UserSession.FullName = $"{surname} {name} {patronymic}".Trim();
 
-                            // Преобразуем строковое название роли в перечисление Role
+                            string roleName = reader.IsDBNull(3) ? "Гость" : reader.GetString(3);
                             if (roleName == "Администратор")
                                 UserSession.CurrentRole = UserSession.Role.admin;
                             else if (roleName == "Менеджер")
@@ -135,7 +120,6 @@ namespace ExamApp
             }
         }
 
-        // Закрывает форму авторизации и открывает главную форму со списком товаров.
         private void OpenMainForm()
         {
             this.Hide();
@@ -144,7 +128,7 @@ namespace ExamApp
         }
     }
 }
-Файл 2: MainForm.cs
+Файл 2: MainForm.cs (исправлен)
 csharp
 using System;
 using System.Collections.Generic;
@@ -156,51 +140,40 @@ using System.Windows.Forms;
 
 namespace ExamApp
 {
-    // Главная форма приложения. Отображает список товаров в виде динамических карточек.
-    // Реализует:
-    // - Пагинацию (переменная pageSize определяет количество карточек на экране)
-    // - Поиск, сортировку и фильтрацию в реальном времени (только для менеджера/админа)
-    // - Подсветку строк в зависимости от скидки и наличия на складе
-    // - Кнопки "Добавить товар" (только админ) и "Заказы" (менеджер и админ)
     public partial class MainForm : Form
     {
         private const string ConnString = "Data Source=YOUR_SERVER;Initial Catalog=DEE2;Integrated Security=True;Encrypt=False";
 
-        // Количество товаров, отображаемых на одной странице (пагинация)
-        private readonly int pageSize = 3;   // легко изменить, например, на 4 или 5
-        private int currentPage = 0;         // текущая страница (0 - первая)
+        // Количество карточек на одной странице (пагинация)
+        private readonly int pageSize = 3;
+        private int currentPage = 0;
 
-        private FlowLayoutPanel flowPanel;    // контейнер для динамических карточек
-        private TextBox txtSearch;            // поле поиска (только для менеджера/админа)
-        private ComboBox cmbSort, cmbFilter;  // выпадающие списки для сортировки и фильтра
+        private FlowLayoutPanel flowPanel;
+        private TextBox txtSearch;
+        private ComboBox cmbSort, cmbFilter;
         private Button btnLogout, btnAddProduct, btnOrders, btnPrev, btnNext;
         private Label lblUser, lblPageInfo;
-        private List<Product> allProducts = new List<Product>();      // все товары из БД
-        private List<Product> filteredProducts = new List<Product>(); // отфильтрованные/отсортированные
+        private List<Product> allProducts = new List<Product>();
+        private List<Product> filteredProducts = new List<Product>();
 
         public MainForm()
         {
             InitializeComponents();
-            LoadProducts();   // загрузка данных из БД при запуске
+            LoadProducts();
         }
 
-        // Динамическое создание всех элементов главной формы.
-        // Верхняя панель: кнопка "Выйти", ФИО пользователя, кнопки "Добавить товар" и "Заказы".
-        // Панель поиска/сортировки/фильтра (показывается только для ролей менеджер и администратор).
-        // Центральная область с карточками товаров (FlowLayoutPanel).
-        // Нижняя панель с кнопками пагинации.
+        // Динамическое создание интерфейса (панели, кнопки, поля)
         private void InitializeComponents()
         {
             this.Text = "Список товаров";
             this.Size = new Size(1100, 750);
             this.StartPosition = FormStartPosition.CenterScreen;
 
-            // ---- Верхняя панель (заголовок, кнопки, ФИО) ----
+            // Верхняя панель с кнопками и ФИО
             Panel topPanel = new Panel { Dock = DockStyle.Top, Height = 80, BackColor = Color.LightSeaGreen };
             btnLogout = new Button { Text = "Выйти", Location = new Point(10, 25), Size = new Size(80, 35) };
             btnLogout.Click += (s, e) => this.Close();
 
-            // Отображение ФИО в правом верхнем углу (критерий 2.6)
             lblUser = new Label
             {
                 Text = UserSession.FullName,
@@ -209,7 +182,6 @@ namespace ExamApp
                 TextAlign = ContentAlignment.MiddleRight
             };
 
-            // Кнопка "Добавить товар" видна только администратору (критерий 3.6 и 4.2)
             btnAddProduct = new Button
             {
                 Text = "Добавить товар",
@@ -219,7 +191,6 @@ namespace ExamApp
             };
             btnAddProduct.Click += (s, e) => { new ProductForm(0).ShowDialog(); LoadProducts(); };
 
-            // Кнопка "Заказы" видна менеджеру и администратору (критерий 4.2)
             btnOrders = new Button
             {
                 Text = "Заказы",
@@ -234,16 +205,14 @@ namespace ExamApp
             topPanel.Controls.Add(btnAddProduct);
             topPanel.Controls.Add(btnOrders);
 
-            // ---- Панель поиска, сортировки и фильтрации (для менеджера и админа) ----
+            // Панель поиска/сортировки/фильтра (только для менеджера/админа)
             Panel searchPanel = new Panel { Dock = DockStyle.Top, Height = 50, BackColor = Color.LightGray };
             if (UserSession.CurrentRole == UserSession.Role.manager || UserSession.CurrentRole == UserSession.Role.admin)
             {
-                // Поиск – при каждом изменении текста применяются фильтры (критерий 3.7)
                 Label lblSearch = new Label { Text = "Поиск:", Location = new Point(10, 15), Size = new Size(50, 25) };
                 txtSearch = new TextBox { Location = new Point(60, 12), Size = new Size(200, 25) };
                 txtSearch.TextChanged += (s, e) => { currentPage = 0; ApplyFilters(); };
 
-                // Сортировка – при изменении выбора применяется (критерий 3.8)
                 Label lblSort = new Label { Text = "Сортировка:", Location = new Point(290, 15), Size = new Size(80, 25) };
                 cmbSort = new ComboBox
                 {
@@ -255,7 +224,6 @@ namespace ExamApp
                 cmbSort.SelectedIndex = 0;
                 cmbSort.SelectedIndexChanged += (s, e) => { currentPage = 0; ApplyFilters(); };
 
-                // Фильтрация по диапазонам скидок (критерий 3.9)
                 Label lblFilter = new Label { Text = "Фильтр (скидка):", Location = new Point(560, 15), Size = new Size(100, 25) };
                 cmbFilter = new ComboBox
                 {
@@ -272,7 +240,6 @@ namespace ExamApp
                 searchPanel.Controls.Add(lblFilter); searchPanel.Controls.Add(cmbFilter);
             }
 
-            // ---- Контейнер для карточек товаров (динамическая генерация) ----
             flowPanel = new FlowLayoutPanel
             {
                 Dock = DockStyle.Fill,
@@ -282,7 +249,6 @@ namespace ExamApp
                 WrapContents = false
             };
 
-            // ---- Нижняя панель с кнопками пагинации (критерий pageSize) ----
             Panel bottomPanel = new Panel { Dock = DockStyle.Bottom, Height = 50, BackColor = Color.LightGray };
             btnPrev = new Button { Text = "Назад", Location = new Point(10, 8), Size = new Size(80, 35) };
             btnPrev.Click += BtnPrev_Click;
@@ -299,8 +265,7 @@ namespace ExamApp
             Controls.Add(topPanel);
         }
 
-        // Загружает все товары из базы данных (связанные таблицы: suppliers, units, fabricators, product_categories).
-        // Заполняет список allProducts.
+        // Загрузка товаров из БД с защитой от NULL
         private void LoadProducts()
         {
             allProducts.Clear();
@@ -321,32 +286,31 @@ namespace ExamApp
                     {
                         Product product = new Product();
                         product.Id = reader.GetInt32(0);
-                        product.Article = reader.GetString(1);
-                        product.Name = reader.GetString(2);
+                        // Для каждого строкового поля проверяем на NULL
+                        product.Article = reader.IsDBNull(1) ? "" : reader.GetString(1);
+                        product.Name = reader.IsDBNull(2) ? "" : reader.GetString(2);
                         product.Price = reader.GetDecimal(3);
                         product.Discount = reader.GetDecimal(4);
                         product.Count = reader.GetInt32(5);
-                        product.Description = reader.GetString(6);
+                        product.Description = reader.IsDBNull(6) ? "" : reader.GetString(6);
                         product.PhotoPath = reader.IsDBNull(7) ? "images/picture.png" : reader.GetString(7);
-                        product.Supplier = reader.GetString(8);
-                        product.Unit = reader.GetString(9);
-                        product.Fabricator = reader.GetString(10);
-                        product.Category = reader.GetString(11);
+                        product.Supplier = reader.IsDBNull(8) ? "" : reader.GetString(8);
+                        product.Unit = reader.IsDBNull(9) ? "" : reader.GetString(9);
+                        product.Fabricator = reader.IsDBNull(10) ? "" : reader.GetString(10);
+                        product.Category = reader.IsDBNull(11) ? "" : reader.GetString(11);
                         allProducts.Add(product);
                     }
                 }
             }
             currentPage = 0;
-            ApplyFilters(); // начальная фильтрация и отображение
+            ApplyFilters();
         }
 
-        // Применяет текущие настройки поиска, фильтрации и сортировки к списку allProducts.
-        // Результат сохраняет в filteredProducts и вызывает отображение текущей страницы.
+        // Применение поиска, фильтрации и сортировки
         private void ApplyFilters()
         {
             IEnumerable<Product> query = allProducts;
 
-            // Поиск по всем текстовым полям (артикул, название, описание, категория, производитель, поставщик)
             if (txtSearch != null && !string.IsNullOrEmpty(txtSearch.Text))
             {
                 string search = txtSearch.Text.ToLower();
@@ -357,7 +321,6 @@ namespace ExamApp
                                          p.Fabricator.ToLower().Contains(search) ||
                                          p.Supplier.ToLower().Contains(search));
             }
-            // Фильтрация по диапазону скидки
             if (cmbFilter != null)
             {
                 string filter = cmbFilter.SelectedItem?.ToString();
@@ -368,7 +331,6 @@ namespace ExamApp
                 else if (filter == "19% и более")
                     query = query.Where(p => p.Discount >= 19);
             }
-            // Сортировка по выбранному критерию
             if (cmbSort != null)
             {
                 string sort = cmbSort.SelectedItem?.ToString();
@@ -385,14 +347,12 @@ namespace ExamApp
             RenderCurrentPage();
         }
 
-        // Отображает текущую страницу (количество карточек = pageSize).
-        // Обновляет информацию о странице и состояние кнопок "Назад"/"Вперёд".
+        // Отображение текущей страницы (пагинация)
         private void RenderCurrentPage()
         {
             flowPanel.Controls.Clear();
             int totalPages = (int)Math.Ceiling((double)filteredProducts.Count / pageSize);
             if (totalPages == 0) totalPages = 1;
-            // Корректировка текущей страницы, если она вышла за границы
             if (currentPage >= totalPages) currentPage = totalPages - 1;
             if (currentPage < 0) currentPage = 0;
 
@@ -405,7 +365,6 @@ namespace ExamApp
             btnNext.Enabled = (currentPage < totalPages - 1);
         }
 
-        // Обработчики кнопок пагинации
         private void BtnPrev_Click(object sender, EventArgs e)
         {
             if (currentPage > 0)
@@ -425,12 +384,7 @@ namespace ExamApp
             }
         }
 
-        // Создаёт панель (карточку) для одного товара.
-        // Настраивает отображение всех полей (фото, категория, наименование, описание, производитель, поставщик, единица измерения, цена, скидка, количество).
-        // Реализует подсветку строк согласно критерию 2.8:
-        // - Если товара нет на складе (count == 0) -> фон серый.
-        // - Если скидка > 15% -> фон #483D8B.
-        // - Если скидка > 0, основная цена перечёркивается (красный цвет), рядом отображается итоговая цена (чёрный).
+        // Создание карточки товара с подсветкой строк и перечёркнутой ценой
         private Panel CreateProductCard(Product p)
         {
             Panel card = new Panel
@@ -442,13 +396,12 @@ namespace ExamApp
                 Tag = p.Id
             };
 
-            // Подсветка строки в зависимости от остатка и скидки
             if (p.Count == 0)
                 card.BackColor = Color.LightGray;
             else if (p.Discount > 15)
-                card.BackColor = Color.FromArgb(0x48, 0x3D, 0x8B); // #483D8B – тёмно-фиолетовый
+                card.BackColor = Color.FromArgb(0x48, 0x3D, 0x8B); // #483D8B
 
-            // Блок изображения
+            // Изображение
             PictureBox pb = new PictureBox
             {
                 Size = new Size(150, 150),
@@ -461,7 +414,6 @@ namespace ExamApp
             else
                 pb.Image = Image.FromFile(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "images", "picture.png"));
 
-            // Текстовые метки (все необходимые поля)
             Label lblName = new Label { Text = $"{p.Category} | {p.Name}", Font = new Font("Times New Roman", 12, FontStyle.Bold), Location = new Point(170, 10), Size = new Size(400, 25) };
             Label lblDesc = new Label { Text = p.Description, Location = new Point(170, 40), Size = new Size(400, 40), Font = new Font("Times New Roman", 10) };
             Label lblFab = new Label { Text = $"Производитель: {p.Fabricator}", Location = new Point(170, 85), Size = new Size(200, 20) };
@@ -471,7 +423,6 @@ namespace ExamApp
             Label lblDiscount = new Label { Text = $"Скидка: {p.Discount}%", Location = new Point(420, 105), Size = new Size(150, 20), ForeColor = Color.DarkRed };
             Label lblPrice = new Label { Text = $"{p.Price:F2} руб.", Location = new Point(420, 125), Size = new Size(150, 20) };
 
-            // Если есть скидка, перечёркиваем основную цену и выводим итоговую
             if (p.Discount > 0)
             {
                 decimal final = p.Price * (1 - p.Discount / 100);
@@ -498,7 +449,7 @@ namespace ExamApp
             card.Controls.Add(lblDiscount);
             card.Controls.Add(lblPrice);
 
-            // Клик по карточке (и по всем её дочерним элементам) открывает форму редактирования, но только для администратора
+            // Редактирование доступно только администратору
             if (UserSession.CurrentRole == UserSession.Role.admin)
             {
                 card.Click += (s, e) => { new ProductForm(p.Id).ShowDialog(); LoadProducts(); };
@@ -509,7 +460,7 @@ namespace ExamApp
         }
     }
 
-    // Модель товара (используется для хранения данных одной записи из БД)
+    // Класс-модель товара
     public class Product
     {
         public int Id { get; set; }
@@ -526,7 +477,7 @@ namespace ExamApp
         public string Category { get; set; }
     }
 }
-Файл 3: ProductForm.cs
+Файл 3: ProductForm.cs (исправлен)
 csharp
 using System;
 using System.Data.SqlClient;
@@ -536,23 +487,14 @@ using System.Windows.Forms;
 
 namespace ExamApp
 {
-    // Форма для добавления и редактирования товара.
-    // Доступна только администратору.
-    // Реализует:
-    // - Загрузку всех полей при редактировании (критерий 3.1)
-    // - ID товара: при добавлении не отображается, при редактировании только для чтения
-    // - Загрузку изображения с проверкой размера 300x200 пикселей (критерий 3.2)
-    // - Сохранение изображения в папку приложения, удаление старого фото при замене
-    // - Удаление товара с проверкой наличия в заказах (критерий 3.6)
     public partial class ProductForm : Form
     {
         private const string ConnString = "Data Source=YOUR_SERVER;Initial Catalog=DEE2;Integrated Security=True;Encrypt=False";
-        private int productId;               // 0 – новый товар, иначе ID редактируемого
-        private string oldImagePath = null;  // путь к старому изображению (для удаления при замене)
+        private int productId;
+        private string oldImagePath = null;
         private string newImageFileName = null;
         private OpenFileDialog ofd = new OpenFileDialog();
 
-        // Элементы управления
         private TextBox txtArticle, txtName, txtDescription, txtId;
         private NumericUpDown numPrice, numCount, numDiscount;
         private ComboBox cmbUnit, cmbSupplier, cmbFabricator, cmbCategory;
@@ -577,73 +519,61 @@ namespace ExamApp
             }
         }
 
-        // Динамическое создание всех полей формы: текстовые поля, выпадающие списки, numericUpDown, кнопки.
+        // Динамическое создание полей формы
         private void InitializeDynamicControls()
         {
             int y = 20;
             Label lblTitle = new Label { Text = this.Text, Font = new Font("Times New Roman", 16, FontStyle.Bold), Location = new Point(20, y), Size = new Size(300, 30) };
             y += 40;
 
-            // ID товара (только для чтения)
             Label lblId = new Label { Text = "ID товара:", Location = new Point(20, y), Size = new Size(100, 25) };
             txtId = new TextBox { Location = new Point(130, y), Size = new Size(150, 25), ReadOnly = true };
             y += 35;
 
-            // Артикул
             Label lblArticle = new Label { Text = "Артикул:*", Location = new Point(20, y), Size = new Size(100, 25) };
             txtArticle = new TextBox { Location = new Point(130, y), Size = new Size(200, 25) };
             y += 35;
 
-            // Наименование
             Label lblName = new Label { Text = "Наименование:*", Location = new Point(20, y), Size = new Size(100, 25) };
             txtName = new TextBox { Location = new Point(130, y), Size = new Size(200, 25) };
             y += 35;
 
-            // Категория (выпадающий список из БД)
             Label lblCategory = new Label { Text = "Категория:*", Location = new Point(20, y), Size = new Size(100, 25) };
             cmbCategory = new ComboBox { Location = new Point(130, y), Size = new Size(200, 25), DropDownStyle = ComboBoxStyle.DropDownList };
             LoadCombo(cmbCategory, "product_categories", "category_id", "name");
             y += 35;
 
-            // Описание
             Label lblDesc = new Label { Text = "Описание:", Location = new Point(20, y), Size = new Size(100, 25) };
             txtDescription = new TextBox { Location = new Point(130, y), Size = new Size(300, 60), Multiline = true };
             y += 70;
 
-            // Производитель
             Label lblFab = new Label { Text = "Производитель:*", Location = new Point(20, y), Size = new Size(100, 25) };
             cmbFabricator = new ComboBox { Location = new Point(130, y), Size = new Size(200, 25), DropDownStyle = ComboBoxStyle.DropDownList };
             LoadCombo(cmbFabricator, "fabricators", "fabricator_id", "name");
             y += 35;
 
-            // Поставщик
             Label lblSup = new Label { Text = "Поставщик:*", Location = new Point(20, y), Size = new Size(100, 25) };
             cmbSupplier = new ComboBox { Location = new Point(130, y), Size = new Size(200, 25), DropDownStyle = ComboBoxStyle.DropDownList };
             LoadCombo(cmbSupplier, "suppliers", "supplier_id", "name");
             y += 35;
 
-            // Единица измерения
             Label lblUnit = new Label { Text = "Ед. изм.:*", Location = new Point(20, y), Size = new Size(100, 25) };
             cmbUnit = new ComboBox { Location = new Point(130, y), Size = new Size(200, 25), DropDownStyle = ComboBoxStyle.DropDownList };
             LoadCombo(cmbUnit, "units", "unit_id", "name");
             y += 35;
 
-            // Цена (с двумя десятичными знаками)
             Label lblPrice = new Label { Text = "Цена:*", Location = new Point(20, y), Size = new Size(100, 25) };
             numPrice = new NumericUpDown { Location = new Point(130, y), Size = new Size(100, 25), Minimum = 0, Maximum = 999999, DecimalPlaces = 2 };
             y += 35;
 
-            // Количество на складе
             Label lblCount = new Label { Text = "Кол-во:*", Location = new Point(20, y), Size = new Size(100, 25) };
             numCount = new NumericUpDown { Location = new Point(130, y), Size = new Size(100, 25), Minimum = 0, Maximum = 999999 };
             y += 35;
 
-            // Действующая скидка (в процентах)
             Label lblDiscount = new Label { Text = "Скидка (%):", Location = new Point(20, y), Size = new Size(100, 25) };
             numDiscount = new NumericUpDown { Location = new Point(130, y), Size = new Size(100, 25), Minimum = 0, Maximum = 100, DecimalPlaces = 2 };
             y += 45;
 
-            // Фото товара и кнопка загрузки
             pbImage = new PictureBox
             {
                 Location = new Point(450, 50),
@@ -657,7 +587,6 @@ namespace ExamApp
             btnLoadImage = new Button { Text = "Загрузить фото", Location = new Point(450, 260), Size = new Size(200, 30) };
             btnLoadImage.Click += BtnLoadImage_Click;
 
-            // Кнопки: Сохранить, Отмена, Удалить (удаление доступно только при редактировании)
             btnSave = new Button { Text = "Сохранить", Location = new Point(150, y), Size = new Size(100, 40), BackColor = Color.LightGreen };
             btnSave.Click += BtnSave_Click;
             btnCancel = new Button { Text = "Отмена", Location = new Point(280, y), Size = new Size(100, 40) };
@@ -682,7 +611,7 @@ namespace ExamApp
             Controls.Add(btnSave); Controls.Add(btnCancel); Controls.Add(btnDelete);
         }
 
-        // Загружает данные из таблицы-справочника в выпадающий список
+        // Загрузка выпадающих списков из БД
         private void LoadCombo(ComboBox cmb, string table, string idField, string nameField)
         {
             using (SqlConnection conn = new SqlConnection(ConnString))
@@ -702,7 +631,7 @@ namespace ExamApp
             }
         }
 
-        // При редактировании загружает данные выбранного товара из БД во все поля формы
+        // Загрузка данных товара при редактировании (с защитой от NULL)
         private void LoadProductData()
         {
             using (SqlConnection conn = new SqlConnection(ConnString))
@@ -717,10 +646,10 @@ namespace ExamApp
                         if (reader.Read())
                         {
                             txtId.Text = productId.ToString();
-                            txtArticle.Text = reader.GetString(0);
-                            txtName.Text = reader.GetString(1);
+                            txtArticle.Text = reader.IsDBNull(0) ? "" : reader.GetString(0);
+                            txtName.Text = reader.IsDBNull(1) ? "" : reader.GetString(1);
                             cmbCategory.SelectedValue = reader.GetInt32(2);
-                            txtDescription.Text = reader.GetString(3);
+                            txtDescription.Text = reader.IsDBNull(3) ? "" : reader.GetString(3);
                             cmbFabricator.SelectedValue = reader.GetInt32(4);
                             cmbSupplier.SelectedValue = reader.GetInt32(5);
                             cmbUnit.SelectedValue = reader.GetInt32(6);
@@ -740,7 +669,7 @@ namespace ExamApp
             }
         }
 
-        // Обработчик загрузки изображения. Проверяет размер 300x200 пикселей
+        // Загрузка изображения с проверкой размера 300x200
         private void BtnLoadImage_Click(object sender, EventArgs e)
         {
             ofd.Filter = "Изображения|*.jpg;*.jpeg;*.png;*.bmp";
@@ -759,11 +688,9 @@ namespace ExamApp
             }
         }
 
-        // Сохраняет товар (добавление или обновление).
-        // При наличии нового изображения копирует его в папку images и удаляет старое.
+        // Сохранение товара (добавление или обновление)
         private void BtnSave_Click(object sender, EventArgs e)
         {
-            // Валидация обязательных полей
             if (string.IsNullOrWhiteSpace(txtArticle.Text) || string.IsNullOrWhiteSpace(txtName.Text))
             {
                 MessageBox.Show("Заполните артикул и наименование.", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -773,14 +700,12 @@ namespace ExamApp
             string imagePath = oldImagePath;
             if (newImageFileName != null)
             {
-                // Создаём папку images, если её нет
                 string targetDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "images");
                 if (!Directory.Exists(targetDir))
                     Directory.CreateDirectory(targetDir);
                 string targetPath = Path.Combine(targetDir, newImageFileName);
                 File.Copy(ofd.FileName, targetPath, true);
                 imagePath = $"images/{newImageFileName}";
-                // Удаляем старое изображение, если оно было
                 if (oldImagePath != null)
                 {
                     string oldFull = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, oldImagePath.Replace('/', '\\'));
@@ -792,7 +717,7 @@ namespace ExamApp
             using (SqlConnection conn = new SqlConnection(ConnString))
             {
                 conn.Open();
-                if (productId == 0) // Добавление нового товара
+                if (productId == 0) // Добавление
                 {
                     string sql = @"INSERT INTO products (article, name, category_id, description, fabricator_id, supplier_id, unit_id, price, count, discount, photo_path)
                                    VALUES (@art, @name, @cat, @desc, @fab, @sup, @unit, @price, @count, @disc, @photo)";
@@ -813,7 +738,7 @@ namespace ExamApp
                         MessageBox.Show("Товар добавлен.", "Успех", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     }
                 }
-                else // Редактирование существующего товара
+                else // Редактирование
                 {
                     string sql = @"UPDATE products SET article=@art, name=@name, category_id=@cat, description=@desc, fabricator_id=@fab,
                                    supplier_id=@sup, unit_id=@unit, price=@price, count=@count, discount=@disc, photo_path=@photo
@@ -840,8 +765,7 @@ namespace ExamApp
             this.Close();
         }
 
-        // Удаление товара. Перед удалением проверяет, есть ли товар в таблице orders_products.
-        // Если есть – удаление запрещено.
+        // Удаление товара с проверкой наличия в заказах
         private void BtnDelete_Click(object sender, EventArgs e)
         {
             using (SqlConnection conn = new SqlConnection(ConnString))
@@ -870,7 +794,7 @@ namespace ExamApp
         }
     }
 }
-Файл 4: OrdersForm.cs
+Файл 4: OrdersForm.cs (исправлен)
 csharp
 using System;
 using System.Collections.Generic;
@@ -880,11 +804,6 @@ using System.Windows.Forms;
 
 namespace ExamApp
 {
-    // Форма управления заказами (доступна менеджеру и администратору).
-    // Реализует:
-    // - Вывод списка заказов в виде динамических карточек (критерий 4.3)
-    // - Кнопки "Добавить заказ", "Редактировать", "Удалить" (для администратора)
-    // - Обновление списка после операций (критерий 4.10)
     public partial class OrdersForm : Form
     {
         private const string ConnString = "Data Source=YOUR_SERVER;Initial Catalog=DEE2;Integrated Security=True;Encrypt=False";
@@ -897,17 +816,15 @@ namespace ExamApp
             this.Size = new Size(1000, 700);
             this.StartPosition = FormStartPosition.CenterScreen;
 
-            // Верхняя панель: кнопки "Назад" и "Добавить заказ"
             Panel top = new Panel { Dock = DockStyle.Top, Height = 50, BackColor = Color.LightSeaGreen };
             Button btnBack = new Button { Text = "Назад", Location = new Point(10, 10), Size = new Size(80, 30) };
             btnBack.Click += (s, e) => this.Close();
             Button btnAdd = new Button { Text = "Добавить заказ", Location = new Point(100, 10), Size = new Size(120, 30) };
-            btnAdd.Visible = (UserSession.CurrentRole == UserSession.Role.admin); // только админ может добавлять
+            btnAdd.Visible = (UserSession.CurrentRole == UserSession.Role.admin);
             btnAdd.Click += (s, e) => { new OrderEditForm(0).ShowDialog(); LoadOrders(); };
             top.Controls.Add(btnBack);
             top.Controls.Add(btnAdd);
 
-            // Панель для динамического списка заказов
             flowOrders = new FlowLayoutPanel
             {
                 Dock = DockStyle.Fill,
@@ -921,7 +838,7 @@ namespace ExamApp
             LoadOrders();
         }
 
-        // Загружает список заказов из БД, включая клиента и статус
+        // Загрузка заказов из БД с защитой от NULL (например, delivery_date может быть NULL)
         private void LoadOrders()
         {
             allOrders.Clear();
@@ -942,10 +859,10 @@ namespace ExamApp
                         order.Id = reader.GetInt32(0);
                         order.OrderDate = reader.GetDateTime(1);
                         order.DeliveryDate = reader.IsDBNull(2) ? (DateTime?)null : reader.GetDateTime(2);
-                        order.PickupPoint = reader.GetString(3);
+                        order.PickupPoint = reader.IsDBNull(3) ? "" : reader.GetString(3);
                         order.StatusId = reader.GetInt32(4);
-                        order.StatusName = reader.GetString(5);
-                        order.ClientFullName = reader.GetString(6);
+                        order.StatusName = reader.IsDBNull(5) ? "" : reader.GetString(5);
+                        order.ClientFullName = reader.IsDBNull(6) ? "" : reader.GetString(6);
                         allOrders.Add(order);
                     }
                 }
@@ -953,8 +870,7 @@ namespace ExamApp
             RenderOrders();
         }
 
-        // Динамически создаёт карточки для каждого заказа.
-        // Для администратора добавляет кнопки "Редактировать" и "Удалить".
+        // Динамическое создание карточек заказов
         private void RenderOrders()
         {
             flowOrders.Controls.Clear();
@@ -973,12 +889,10 @@ namespace ExamApp
                 Label lblPoint = new Label { Text = $"Пункт выдачи: {order.PickupPoint}", Location = new Point(250, 30), Size = new Size(250, 20) };
                 Label lblStatus = new Label { Text = $"Статус: {order.StatusName}", Location = new Point(250, 55), Size = new Size(200, 20), Font = new Font("Times New Roman", 10, FontStyle.Italic) };
 
-                // Кнопка редактирования (только для администратора)
                 Button btnEdit = new Button { Text = "Редактировать", Location = new Point(600, 15), Size = new Size(120, 30) };
                 btnEdit.Visible = (UserSession.CurrentRole == UserSession.Role.admin);
                 btnEdit.Click += (s, e) => { new OrderEditForm(order.Id).ShowDialog(); LoadOrders(); };
 
-                // Кнопка удаления (только для администратора)
                 Button btnDelete = new Button { Text = "Удалить", Location = new Point(600, 55), Size = new Size(120, 30), BackColor = Color.LightCoral };
                 btnDelete.Visible = (UserSession.CurrentRole == UserSession.Role.admin);
                 btnDelete.Click += (s, e) =>
@@ -995,7 +909,7 @@ namespace ExamApp
                                 cmd.ExecuteNonQuery();
                             }
                         }
-                        LoadOrders(); // обновляем список после удаления
+                        LoadOrders();
                     }
                 };
 
@@ -1012,7 +926,6 @@ namespace ExamApp
         }
     }
 
-    // Модель заказа
     public class Order
     {
         public int Id { get; set; }
@@ -1024,8 +937,6 @@ namespace ExamApp
         public string ClientFullName { get; set; }
     }
 
-    // Форма добавления/редактирования заказа.
-    // Содержит выпадающие списки для статуса (из БД) и клиента.
     public partial class OrderEditForm : Form
     {
         private const string ConnString = "Data Source=YOUR_SERVER;Initial Catalog=DEE2;Integrated Security=True;Encrypt=False";
@@ -1048,7 +959,6 @@ namespace ExamApp
                 LoadOrderData();
         }
 
-        // Динамическое создание элементов формы заказа
         private void InitializeControls()
         {
             int y = 20;
@@ -1066,12 +976,12 @@ namespace ExamApp
 
             Label lblStatus = new Label { Text = "Статус:*", Location = new Point(20, y), Size = new Size(100, 25) };
             cmbStatus = new ComboBox { Location = new Point(130, y), Size = new Size(200, 25), DropDownStyle = ComboBoxStyle.DropDownList };
-            LoadStatuses();   // загружаем статусы из таблицы order_statuses
+            LoadStatuses();
             y += 35;
 
             Label lblClient = new Label { Text = "Клиент:*", Location = new Point(20, y), Size = new Size(100, 25) };
             cmbClient = new ComboBox { Location = new Point(130, y), Size = new Size(200, 25), DropDownStyle = ComboBoxStyle.DropDownList };
-            LoadClients();    // загружаем клиентов из таблицы clients
+            LoadClients();
             y += 45;
 
             btnSave = new Button { Text = "Сохранить", Location = new Point(100, y), Size = new Size(100, 35), BackColor = Color.LightGreen };
@@ -1125,7 +1035,7 @@ namespace ExamApp
             }
         }
 
-        // Загружает данные заказа в поля формы (при редактировании)
+        // Загрузка данных заказа с защитой от NULL
         private void LoadOrderData()
         {
             using (SqlConnection conn = new SqlConnection(ConnString))
@@ -1145,7 +1055,7 @@ namespace ExamApp
                                 dtpDeliveryDate.Value = reader.GetDateTime(1);
                                 dtpDeliveryDate.Checked = true;
                             }
-                            txtPickupPoint.Text = reader.GetString(2);
+                            txtPickupPoint.Text = reader.IsDBNull(2) ? "" : reader.GetString(2);
                             cmbStatus.SelectedValue = reader.GetInt32(3);
                             cmbClient.SelectedValue = reader.GetInt32(4);
                         }
@@ -1154,7 +1064,6 @@ namespace ExamApp
             }
         }
 
-        // Сохраняет заказ (добавление или обновление) в базе данных
         private void BtnSave_Click(object sender, EventArgs e)
         {
             if (string.IsNullOrWhiteSpace(txtPickupPoint.Text) || cmbStatus.SelectedValue == null || cmbClient.SelectedValue == null)
@@ -1166,7 +1075,7 @@ namespace ExamApp
             using (SqlConnection conn = new SqlConnection(ConnString))
             {
                 conn.Open();
-                if (orderId == 0) // Новый заказ
+                if (orderId == 0)
                 {
                     string sql = @"INSERT INTO orders (order_date, delivery_date, pickup_point, status_id, client_id)
                                    VALUES (@od, @dd, @pp, @sid, @cid)";
@@ -1180,7 +1089,7 @@ namespace ExamApp
                         cmd.ExecuteNonQuery();
                     }
                 }
-                else // Редактирование заказа
+                else
                 {
                     string sql = @"UPDATE orders SET order_date=@od, delivery_date=@dd, pickup_point=@pp, status_id=@sid, client_id=@cid
                                    WHERE order_id=@id";
