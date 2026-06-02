@@ -1,0 +1,1205 @@
+Файл 1: AuthForm.cs (исправлен)
+csharp
+using System;
+using System.Data.SqlClient;
+using System.Drawing;
+using System.Windows.Forms;
+
+namespace ExamApp
+{
+    // Статический класс для хранения данных текущего пользователя (сессии).
+    // Сохраняет роль и полное имя после успешной авторизации.
+    public static class UserSession
+    {
+        public enum Role { guest, user, manager, admin }
+        public static Role CurrentRole { get; set; } = Role.guest;
+        public static string FullName { get; set; } = "Гость";
+    }
+
+    public partial class AuthForm : Form
+    {
+        // ⚙️ НАСТРОЙКА: измените строку подключения к вашей базе данных
+        // Формат: "Data Source=ИМЯ_СЕРВЕРА;Initial Catalog=ИМЯ_БД;Integrated Security=True;Encrypt=False"
+        private const string ConnString = "Data Source=YOUR_SERVER;Initial Catalog=DEE2;Integrated Security=True;Encrypt=False";
+
+        private TextBox txtLogin, txtPassword;
+        private Button btnLogin, btnGuest;
+
+        public AuthForm()
+        {
+            InitializeComponents();
+        }
+
+        // Динамическое создание элементов формы (без дизайнера)
+        private void InitializeComponents()
+        {
+            this.Text = "Авторизация";
+            this.Size = new Size(450, 300);
+            this.StartPosition = FormStartPosition.CenterScreen;
+            this.FormBorderStyle = FormBorderStyle.FixedDialog;
+            this.MaximizeBox = false;
+
+            // Заголовок
+            Label lblTitle = new Label
+            {
+                Text = "Вход в систему",
+                Font = new Font("Times New Roman", 16, FontStyle.Bold),
+                Location = new Point(120, 20),
+                Size = new Size(200, 30)
+            };
+
+            // Поле логина
+            Label lblLogin = new Label { Text = "Логин:", Location = new Point(60, 80), Size = new Size(80, 25), Font = new Font("Times New Roman", 12) };
+            txtLogin = new TextBox { Location = new Point(150, 78), Size = new Size(180, 25), Font = new Font("Times New Roman", 12) };
+
+            // Поле пароля
+            Label lblPassword = new Label { Text = "Пароль:", Location = new Point(60, 120), Size = new Size(80, 25), Font = new Font("Times New Roman", 12) };
+            txtPassword = new TextBox { Location = new Point(150, 118), Size = new Size(180, 25), Font = new Font("Times New Roman", 12), PasswordChar = '*' };
+
+            // Кнопка входа
+            btnLogin = new Button { Text = "Войти", Location = new Point(100, 180), Size = new Size(100, 40), BackColor = Color.LightGreen };
+            btnLogin.Click += BtnLogin_Click;
+
+            // Кнопка входа как гость
+            btnGuest = new Button { Text = "Гость", Location = new Point(220, 180), Size = new Size(100, 40) };
+            btnGuest.Click += (s, e) => { UserSession.CurrentRole = UserSession.Role.guest; OpenMainForm(); };
+
+            Controls.Add(lblTitle);
+            Controls.Add(lblLogin); Controls.Add(txtLogin);
+            Controls.Add(lblPassword); Controls.Add(txtPassword);
+            Controls.Add(btnLogin); Controls.Add(btnGuest);
+        }
+
+        // Проверка логина/пароля, извлечение роли и ФИО с защитой от NULL
+        private void BtnLogin_Click(object sender, EventArgs e)
+        {
+            string login = txtLogin.Text.Trim();
+            string password = txtPassword.Text.Trim();
+
+            if (string.IsNullOrEmpty(login) || string.IsNullOrEmpty(password))
+            {
+                MessageBox.Show("Введите логин и пароль!", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            using (SqlConnection conn = new SqlConnection(ConnString))
+            {
+                conn.Open();
+                string sql = @"SELECT u.surname, u.name, u.patronymic, ur.name 
+                               FROM users u
+                               INNER JOIN credentials c ON c.user_id = u.user_id
+                               INNER JOIN user_roles ur ON ur.role_id = u.role_id
+                               WHERE c.login = @login AND c.password = @password";
+                using (SqlCommand cmd = new SqlCommand(sql, conn))
+                {
+                    cmd.Parameters.AddWithValue("@login", login);
+                    cmd.Parameters.AddWithValue("@password", password);
+                    using (SqlDataReader reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            // Чтение ФИО с проверкой на NULL
+                            string surname = reader.IsDBNull(0) ? "" : reader.GetString(0);
+                            string name = reader.IsDBNull(1) ? "" : reader.GetString(1);
+                            string patronymic = reader.IsDBNull(2) ? "" : reader.GetString(2);
+                            UserSession.FullName = $"{surname} {name} {patronymic}".Trim();
+
+                            string roleName = reader.IsDBNull(3) ? "Гость" : reader.GetString(3);
+                            if (roleName == "Администратор")
+                                UserSession.CurrentRole = UserSession.Role.admin;
+                            else if (roleName == "Менеджер")
+                                UserSession.CurrentRole = UserSession.Role.manager;
+                            else if (roleName == "Клиент")
+                                UserSession.CurrentRole = UserSession.Role.user;
+                            else
+                                UserSession.CurrentRole = UserSession.Role.guest;
+
+                            MessageBox.Show($"Добро пожаловать, {UserSession.FullName}!", "Успех", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                            OpenMainForm();
+                        }
+                        else
+                        {
+                            MessageBox.Show("Неверный логин или пароль.", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        }
+                    }
+                }
+            }
+        }
+
+        private void OpenMainForm()
+        {
+            this.Hide();
+            new MainForm().ShowDialog();
+            // ИСПРАВЛЕНИЕ №1: выход на главный экран (окно входа)
+            // Ранее было this.Close(); — теперь окно авторизации не закрывается, а снова показывается
+            // Старый вариант: this.Close();
+            this.Show();
+        }
+    }
+}
+Файл 2: MainForm.cs (исправлен, добавлены комментарии)
+csharp
+using System;
+using System.Collections.Generic;
+using System.Data.SqlClient;
+using System.Drawing;
+using System.IO;
+using System.Linq;
+using System.Windows.Forms;
+
+namespace ExamApp
+{
+    public partial class MainForm : Form
+    {
+        // ⚙️ НАСТРОЙКА ПОДКЛЮЧЕНИЯ К БД – замените YOUR_SERVER
+        private const string ConnString = "Data Source=YOUR_SERVER;Initial Catalog=DEE2;Integrated Security=True;Encrypt=False";
+
+        // ⚙️ НАСТРОЙКА ПАГИНАЦИИ: количество карточек на одной странице
+        private readonly int pageSize = 3;
+        private int currentPage = 0;
+
+        // Элементы интерфейса
+        private FlowLayoutPanel flowPanel;
+        private TextBox txtSearch;
+        private ComboBox cmbSort, cmbFilter;
+        private Button btnLogout, btnAddProduct, btnOrders, btnPrev, btnNext;
+        private Label lblUser, lblPageInfo;
+        private List<Product> allProducts = new List<Product>();
+        private List<Product> filteredProducts = new List<Product>();
+
+        public MainForm()
+        {
+            InitializeComponents();
+            LoadProducts();
+        }
+
+        // Динамическое создание интерфейса (панели, кнопки, поля)
+        private void InitializeComponents()
+        {
+            this.Text = "Список товаров";
+            this.Size = new Size(1100, 750);
+            this.StartPosition = FormStartPosition.CenterScreen;
+
+            // Верхняя панель с кнопками и ФИО
+            Panel topPanel = new Panel { Dock = DockStyle.Top, Height = 80, BackColor = Color.LightSeaGreen };
+            btnLogout = new Button { Text = "Выйти", Location = new Point(10, 25), Size = new Size(80, 35) };
+            btnLogout.Click += (s, e) => this.Close();
+
+            lblUser = new Label
+            {
+                Text = UserSession.FullName,
+                Location = new Point(this.Width - 150, 25),
+                Size = new Size(140, 35),
+                TextAlign = ContentAlignment.MiddleRight
+            };
+
+            btnAddProduct = new Button
+            {
+                Text = "Добавить товар",
+                Location = new Point(200, 25),
+                Size = new Size(120, 35),
+                Visible = (UserSession.CurrentRole == UserSession.Role.admin)
+            };
+            btnAddProduct.Click += (s, e) => { new ProductForm(0).ShowDialog(); LoadProducts(); };
+
+            btnOrders = new Button
+            {
+                Text = "Заказы",
+                Location = new Point(340, 25),
+                Size = new Size(100, 35),
+                Visible = (UserSession.CurrentRole == UserSession.Role.manager || UserSession.CurrentRole == UserSession.Role.admin)
+            };
+            btnOrders.Click += (s, e) => new OrdersForm().ShowDialog();
+
+            topPanel.Controls.Add(btnLogout);
+            topPanel.Controls.Add(lblUser);
+            topPanel.Controls.Add(btnAddProduct);
+            topPanel.Controls.Add(btnOrders);
+
+            // Панель поиска / сортировки / фильтра (только для менеджера/админа)
+            Panel searchPanel = new Panel { Dock = DockStyle.Top, Height = 50, BackColor = Color.LightGray };
+            if (UserSession.CurrentRole == UserSession.Role.manager || UserSession.CurrentRole == UserSession.Role.admin)
+            {
+                Label lblSearch = new Label { Text = "Поиск:", Location = new Point(10, 15), Size = new Size(50, 25) };
+                txtSearch = new TextBox { Location = new Point(60, 12), Size = new Size(200, 25) };
+                txtSearch.TextChanged += (s, e) => { currentPage = 0; ApplyFilters(); };
+
+                Label lblSort = new Label { Text = "Сортировка:", Location = new Point(290, 15), Size = new Size(80, 25) };
+                cmbSort = new ComboBox
+                {
+                    Location = new Point(370, 12),
+                    Size = new Size(150, 25),
+                    DropDownStyle = ComboBoxStyle.DropDownList
+                };
+                cmbSort.Items.AddRange(new[] { "По умолчанию", "Название (А-Я)", "Название (Я-А)", "Цена (возр.)", "Цена (убыв.)" });
+                cmbSort.SelectedIndex = 0;
+                cmbSort.SelectedIndexChanged += (s, e) => { currentPage = 0; ApplyFilters(); };
+
+                Label lblFilter = new Label { Text = "Фильтр (скидка):", Location = new Point(560, 15), Size = new Size(100, 25) };
+                cmbFilter = new ComboBox
+                {
+                    Location = new Point(660, 12),
+                    Size = new Size(150, 25),
+                    DropDownStyle = ComboBoxStyle.DropDownList
+                };
+                cmbFilter.Items.AddRange(new[] { "Все диапазоны", "0 - 11.99%", "12 - 18.99%", "19% и более" });
+                cmbFilter.SelectedIndex = 0;
+                cmbFilter.SelectedIndexChanged += (s, e) => { currentPage = 0; ApplyFilters(); };
+
+                searchPanel.Controls.Add(lblSearch); searchPanel.Controls.Add(txtSearch);
+                searchPanel.Controls.Add(lblSort); searchPanel.Controls.Add(cmbSort);
+                searchPanel.Controls.Add(lblFilter); searchPanel.Controls.Add(cmbFilter);
+            }
+
+            // Панель для динамических карточек товаров (FlowLayoutPanel)
+            flowPanel = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                AutoScroll = true,
+                Padding = new Padding(10),
+                FlowDirection = FlowDirection.TopDown,
+                WrapContents = false
+            };
+
+            // Нижняя панель с кнопками пагинации
+            Panel bottomPanel = new Panel { Dock = DockStyle.Bottom, Height = 50, BackColor = Color.LightGray };
+            btnPrev = new Button { Text = "Назад", Location = new Point(10, 8), Size = new Size(80, 35) };
+            btnPrev.Click += BtnPrev_Click;
+            btnNext = new Button { Text = "Вперёд", Location = new Point(100, 8), Size = new Size(80, 35) };
+            btnNext.Click += BtnNext_Click;
+            lblPageInfo = new Label { Text = "", Location = new Point(200, 15), Size = new Size(250, 25), TextAlign = ContentAlignment.MiddleLeft };
+            bottomPanel.Controls.Add(btnPrev);
+            bottomPanel.Controls.Add(btnNext);
+            bottomPanel.Controls.Add(lblPageInfo);
+
+            Controls.Add(flowPanel);
+            Controls.Add(bottomPanel);
+            Controls.Add(searchPanel);
+            Controls.Add(topPanel);
+        }
+
+        // Загрузка товаров из БД с защитой от NULL
+        private void LoadProducts()
+        {
+            allProducts.Clear();
+            using (SqlConnection conn = new SqlConnection(ConnString))
+            {
+                conn.Open();
+                string sql = @"SELECT p.product_id, p.article, p.name, p.price, p.discount, p.count, p.description, p.photo_path,
+                                      s.name, u.name, f.name, pc.name
+                               FROM products p
+                               INNER JOIN suppliers s ON s.supplier_id = p.supplier_id
+                               INNER JOIN units u ON u.unit_id = p.unit_id
+                               INNER JOIN fabricators f ON f.fabricator_id = p.fabricator_id
+                               INNER JOIN product_categories pc ON pc.category_id = p.category_id";
+                using (SqlCommand cmd = new SqlCommand(sql, conn))
+                using (SqlDataReader reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        Product product = new Product();
+                        product.Id = reader.GetInt32(0);
+                        product.Article = reader.IsDBNull(1) ? "" : reader.GetString(1);
+                        product.Name = reader.IsDBNull(2) ? "" : reader.GetString(2);
+                        product.Price = reader.GetDecimal(3);
+                        product.Discount = reader.GetDecimal(4);
+                        product.Count = reader.GetInt32(5);
+                        product.Description = reader.IsDBNull(6) ? "" : reader.GetString(6);
+                        product.PhotoPath = reader.IsDBNull(7) ? "images/picture.png" : reader.GetString(7);
+                        product.Supplier = reader.IsDBNull(8) ? "" : reader.GetString(8);
+                        product.Unit = reader.IsDBNull(9) ? "" : reader.GetString(9);
+                        product.Fabricator = reader.IsDBNull(10) ? "" : reader.GetString(10);
+                        product.Category = reader.IsDBNull(11) ? "" : reader.GetString(11);
+                        allProducts.Add(product);
+                    }
+                }
+            }
+            currentPage = 0;
+            ApplyFilters();
+        }
+
+        // Применение поиска, фильтрации и сортировки (реальное время)
+        private void ApplyFilters()
+        {
+            IEnumerable<Product> query = allProducts;
+
+            if (txtSearch != null && !string.IsNullOrEmpty(txtSearch.Text))
+            {
+                string search = txtSearch.Text.ToLower();
+                query = query.Where(p => p.Article.ToLower().Contains(search) ||
+                                         p.Name.ToLower().Contains(search) ||
+                                         p.Description.ToLower().Contains(search) ||
+                                         p.Category.ToLower().Contains(search) ||
+                                         p.Fabricator.ToLower().Contains(search) ||
+                                         p.Supplier.ToLower().Contains(search));
+            }
+            if (cmbFilter != null)
+            {
+                string filter = cmbFilter.SelectedItem?.ToString();
+                if (filter == "0 - 11.99%")
+                    query = query.Where(p => p.Discount >= 0 && p.Discount <= 11.99m);
+                else if (filter == "12 - 18.99%")
+                    query = query.Where(p => p.Discount >= 12 && p.Discount <= 18.99m);
+                else if (filter == "19% и более")
+                    query = query.Where(p => p.Discount >= 19);
+            }
+            if (cmbSort != null)
+            {
+                string sort = cmbSort.SelectedItem?.ToString();
+                if (sort == "Название (А-Я)")
+                    query = query.OrderBy(p => p.Name);
+                else if (sort == "Название (Я-А)")
+                    query = query.OrderByDescending(p => p.Name);
+                else if (sort == "Цена (возр.)")
+                    query = query.OrderBy(p => p.Price * (1 - p.Discount / 100));
+                else if (sort == "Цена (убыв.)")
+                    query = query.OrderByDescending(p => p.Price * (1 - p.Discount / 100));
+            }
+            filteredProducts = query.ToList();
+            RenderCurrentPage();
+        }
+
+        // Отображение текущей страницы (пагинация)
+        private void RenderCurrentPage()
+        {
+            flowPanel.Controls.Clear();
+            int totalPages = (int)Math.Ceiling((double)filteredProducts.Count / pageSize);
+            if (totalPages == 0) totalPages = 1;
+            if (currentPage >= totalPages) currentPage = totalPages - 1;
+            if (currentPage < 0) currentPage = 0;
+
+            List<Product> pageProducts = filteredProducts.Skip(currentPage * pageSize).Take(pageSize).ToList();
+            foreach (Product p in pageProducts)
+                flowPanel.Controls.Add(CreateProductCard(p));
+
+            lblPageInfo.Text = $"Страница {currentPage + 1} из {totalPages} (всего {filteredProducts.Count} товаров)";
+            btnPrev.Enabled = (currentPage > 0);
+            btnNext.Enabled = (currentPage < totalPages - 1);
+        }
+
+        private void BtnPrev_Click(object sender, EventArgs e)
+        {
+            if (currentPage > 0)
+            {
+                currentPage--;
+                RenderCurrentPage();
+            }
+        }
+
+        private void BtnNext_Click(object sender, EventArgs e)
+        {
+            int totalPages = (int)Math.Ceiling((double)filteredProducts.Count / pageSize);
+            if (currentPage < totalPages - 1)
+            {
+                currentPage++;
+                RenderCurrentPage();
+            }
+        }
+
+        // Создание карточки товара с подсветкой строк и перечёркнутой ценой
+        // ⚙️ НАСТРОЙКИ ВНЕШНЕГО ВИДА КАРТОЧКИ:
+        // - изменить цвета подсветки: строки 213-219
+        // - изменить размеры: строки 223-228 (размер карточки), 230-240 (размеры элементов)
+        // - изменить расположение: координаты Location
+        private Panel CreateProductCard(Product p)
+        {
+            // Размер карточки: ширина 950 пикселей, высота 200
+            // ВНИМАНИЕ: если форма меняет размер, ширина может быть скорректирована вручную
+            Panel card = new Panel
+            {
+                Width = 950,   // фиксированная ширина (можно изменить)
+                Height = 200,
+                Margin = new Padding(5),
+                BorderStyle = BorderStyle.FixedSingle,
+                Tag = p.Id
+            };
+
+            // ---------- ПОДСВЕТКА СТРОК ----------
+            // ИСПРАВЛЕНИЕ №2: товар "нет на складе" → голубой фон (SkyBlue)
+            // Требование задания: "Если товара нет на складе, строка выделяется голубым цветом"
+            if (p.Count == 0)
+                card.BackColor = Color.SkyBlue;      // был LightGray, исправлено на SkyBlue
+            else if (p.Discount > 15)
+                card.BackColor = Color.FromArgb(0x48, 0x3D, 0x8B); // #483D8B – фиолетово-синий (скидка >15%)
+            // Для остальных случаев фон остаётся по умолчанию (SystemColors.Control)
+
+            // ---------- ИЗОБРАЖЕНИЕ ----------
+            PictureBox pb = new PictureBox
+            {
+                Size = new Size(150, 150),
+                Location = new Point(10, 25),
+                SizeMode = PictureBoxSizeMode.StretchImage
+            };
+            string imgPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, p.PhotoPath.Replace('/', '\\'));
+            if (File.Exists(imgPath))
+                pb.Image = Image.FromFile(imgPath);
+            else
+            {
+                // Путь к картинке-заглушке (можно изменить)
+                string defaultImg = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "images", "picture.png");
+                if (File.Exists(defaultImg))
+                    pb.Image = Image.FromFile(defaultImg);
+            }
+
+            // ---------- ТЕКСТОВЫЕ ПОЛЯ ----------
+            Label lblName = new Label
+            {
+                Text = $"{p.Category} | {p.Name}",
+                Font = new Font("Times New Roman", 12, FontStyle.Bold),
+                Location = new Point(170, 10),
+                Size = new Size(400, 25)
+            };
+            Label lblDesc = new Label
+            {
+                Text = p.Description,
+                Location = new Point(170, 40),
+                Size = new Size(400, 40),
+                Font = new Font("Times New Roman", 10)
+            };
+            Label lblFab = new Label
+            {
+                Text = $"Производитель: {p.Fabricator}",
+                Location = new Point(170, 85),
+                Size = new Size(200, 20)
+            };
+            Label lblSup = new Label
+            {
+                Text = $"Поставщик: {p.Supplier}",
+                Location = new Point(170, 105),
+                Size = new Size(200, 20)
+            };
+            Label lblUnit = new Label
+            {
+                Text = $"Ед. изм.: {p.Unit}",
+                Location = new Point(170, 125),
+                Size = new Size(200, 20)
+            };
+            Label lblCount = new Label
+            {
+                Text = $"Кол-во: {p.Count}",
+                Location = new Point(170, 145),
+                Size = new Size(200, 20)
+            };
+            Label lblDiscount = new Label
+            {
+                Text = $"Скидка: {p.Discount}%",
+                Location = new Point(420, 105),
+                Size = new Size(150, 20),
+                ForeColor = Color.DarkRed
+            };
+            Label lblPrice = new Label
+            {
+                Text = $"{p.Price:F2} руб.",
+                Location = new Point(420, 125),
+                Size = new Size(150, 20)
+            };
+
+            // Если есть скидка – перечёркиваем основную цену и добавляем итоговую
+            if (p.Discount > 0)
+            {
+                decimal final = p.Price * (1 - p.Discount / 100);
+                lblPrice.Font = new Font(lblPrice.Font, FontStyle.Strikeout);
+                lblPrice.ForeColor = Color.Red;
+                Label lblFinal = new Label
+                {
+                    Text = $"{final:F2} руб.",
+                    Location = new Point(570, 125),
+                    Size = new Size(100, 20),
+                    Font = new Font("Times New Roman", 10, FontStyle.Bold),
+                    ForeColor = Color.Black
+                };
+                card.Controls.Add(lblFinal);
+            }
+
+            // Добавляем все элементы на карточку
+            card.Controls.Add(pb);
+            card.Controls.Add(lblName);
+            card.Controls.Add(lblDesc);
+            card.Controls.Add(lblFab);
+            card.Controls.Add(lblSup);
+            card.Controls.Add(lblUnit);
+            card.Controls.Add(lblCount);
+            card.Controls.Add(lblDiscount);
+            card.Controls.Add(lblPrice);
+
+            // Редактирование доступно только администратору (клик по карточке или её элементам)
+            if (UserSession.CurrentRole == UserSession.Role.admin)
+            {
+                card.Click += (s, e) => { new ProductForm(p.Id).ShowDialog(); LoadProducts(); };
+                foreach (Control c in card.Controls)
+                    c.Click += (s, e) => { new ProductForm(p.Id).ShowDialog(); LoadProducts(); };
+            }
+            return card;
+        }
+    }
+
+    // Класс-модель товара
+    public class Product
+    {
+        public int Id { get; set; }
+        public string Article { get; set; }
+        public string Name { get; set; }
+        public decimal Price { get; set; }
+        public decimal Discount { get; set; }
+        public int Count { get; set; }
+        public string Description { get; set; }
+        public string PhotoPath { get; set; }
+        public string Supplier { get; set; }
+        public string Unit { get; set; }
+        public string Fabricator { get; set; }
+        public string Category { get; set; }
+    }
+}
+Файл 3: ProductForm.cs (без изменений, но добавлены комментарии)
+csharp
+using System;
+using System.Data.SqlClient;
+using System.Drawing;
+using System.IO;
+using System.Windows.Forms;
+
+namespace ExamApp
+{
+    public partial class ProductForm : Form
+    {
+        // ⚙️ НАСТРОЙКА ПОДКЛЮЧЕНИЯ К БД – замените YOUR_SERVER
+        private const string ConnString = "Data Source=YOUR_SERVER;Initial Catalog=DEE2;Integrated Security=True;Encrypt=False";
+        private int productId;
+        private string oldImagePath = null;
+        private string newImageFileName = null;
+        private OpenFileDialog ofd = new OpenFileDialog();
+
+        private TextBox txtArticle, txtName, txtDescription, txtId;
+        private NumericUpDown numPrice, numCount, numDiscount;
+        private ComboBox cmbUnit, cmbSupplier, cmbFabricator, cmbCategory;
+        private PictureBox pbImage;
+        private Button btnLoadImage, btnSave, btnCancel, btnDelete;
+
+        public ProductForm(int id = 0)
+        {
+            productId = id;
+            this.Text = productId > 0 ? "Редактирование товара" : "Добавление товара";
+            this.Size = new Size(750, 650);
+            this.StartPosition = FormStartPosition.CenterScreen;
+            this.FormBorderStyle = FormBorderStyle.FixedDialog;
+            this.MaximizeBox = false;
+            InitializeDynamicControls();
+            if (productId > 0)
+                LoadProductData();
+            else
+            {
+                txtId.Text = "(новый)";
+                txtId.ReadOnly = true;
+            }
+        }
+
+        // Динамическое создание полей формы
+        // ⚙️ НАСТРОЙКИ: координаты и размеры можно менять в этой функции
+        private void InitializeDynamicControls()
+        {
+            int y = 20;
+            Label lblTitle = new Label { Text = this.Text, Font = new Font("Times New Roman", 16, FontStyle.Bold), Location = new Point(20, y), Size = new Size(300, 30) };
+            y += 40;
+
+            // ID товара (только для чтения)
+            Label lblId = new Label { Text = "ID товара:", Location = new Point(20, y), Size = new Size(100, 25) };
+            txtId = new TextBox { Location = new Point(130, y), Size = new Size(150, 25), ReadOnly = true };
+            y += 35;
+
+            // Артикул
+            Label lblArticle = new Label { Text = "Артикул:*", Location = new Point(20, y), Size = new Size(100, 25) };
+            txtArticle = new TextBox { Location = new Point(130, y), Size = new Size(200, 25) };
+            y += 35;
+
+            // Наименование
+            Label lblName = new Label { Text = "Наименование:*", Location = new Point(20, y), Size = new Size(100, 25) };
+            txtName = new TextBox { Location = new Point(130, y), Size = new Size(200, 25) };
+            y += 35;
+
+            // Категория (выпадающий список)
+            Label lblCategory = new Label { Text = "Категория:*", Location = new Point(20, y), Size = new Size(100, 25) };
+            cmbCategory = new ComboBox { Location = new Point(130, y), Size = new Size(200, 25), DropDownStyle = ComboBoxStyle.DropDownList };
+            LoadCombo(cmbCategory, "product_categories", "category_id", "name");
+            y += 35;
+
+            // Описание (многострочное)
+            Label lblDesc = new Label { Text = "Описание:", Location = new Point(20, y), Size = new Size(100, 25) };
+            txtDescription = new TextBox { Location = new Point(130, y), Size = new Size(300, 60), Multiline = true };
+            y += 70;
+
+            // Производитель
+            Label lblFab = new Label { Text = "Производитель:*", Location = new Point(20, y), Size = new Size(100, 25) };
+            cmbFabricator = new ComboBox { Location = new Point(130, y), Size = new Size(200, 25), DropDownStyle = ComboBoxStyle.DropDownList };
+            LoadCombo(cmbFabricator, "fabricators", "fabricator_id", "name");
+            y += 35;
+
+            // Поставщик
+            Label lblSup = new Label { Text = "Поставщик:*", Location = new Point(20, y), Size = new Size(100, 25) };
+            cmbSupplier = new ComboBox { Location = new Point(130, y), Size = new Size(200, 25), DropDownStyle = ComboBoxStyle.DropDownList };
+            LoadCombo(cmbSupplier, "suppliers", "supplier_id", "name");
+            y += 35;
+
+            // Единица измерения
+            Label lblUnit = new Label { Text = "Ед. изм.:*", Location = new Point(20, y), Size = new Size(100, 25) };
+            cmbUnit = new ComboBox { Location = new Point(130, y), Size = new Size(200, 25), DropDownStyle = ComboBoxStyle.DropDownList };
+            LoadCombo(cmbUnit, "units", "unit_id", "name");
+            y += 35;
+
+            // Цена (NumericUpDown с двумя знаками)
+            Label lblPrice = new Label { Text = "Цена:*", Location = new Point(20, y), Size = new Size(100, 25) };
+            numPrice = new NumericUpDown { Location = new Point(130, y), Size = new Size(100, 25), Minimum = 0, Maximum = 999999, DecimalPlaces = 2 };
+            y += 35;
+
+            // Количество на складе
+            Label lblCount = new Label { Text = "Кол-во:*", Location = new Point(20, y), Size = new Size(100, 25) };
+            numCount = new NumericUpDown { Location = new Point(130, y), Size = new Size(100, 25), Minimum = 0, Maximum = 999999 };
+            y += 35;
+
+            // Скидка (проценты)
+            Label lblDiscount = new Label { Text = "Скидка (%):", Location = new Point(20, y), Size = new Size(100, 25) };
+            numDiscount = new NumericUpDown { Location = new Point(130, y), Size = new Size(100, 25), Minimum = 0, Maximum = 100, DecimalPlaces = 2 };
+            y += 45;
+
+            // Изображение товара
+            pbImage = new PictureBox
+            {
+                Location = new Point(450, 50),
+                Size = new Size(200, 200),
+                SizeMode = PictureBoxSizeMode.StretchImage,
+                BorderStyle = BorderStyle.FixedSingle
+            };
+            string defaultImg = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "images", "picture.png");
+            if (File.Exists(defaultImg))
+                pbImage.Image = Image.FromFile(defaultImg);
+            btnLoadImage = new Button { Text = "Загрузить фото", Location = new Point(450, 260), Size = new Size(200, 30) };
+            btnLoadImage.Click += BtnLoadImage_Click;
+
+            // Кнопки управления
+            btnSave = new Button { Text = "Сохранить", Location = new Point(150, y), Size = new Size(100, 40), BackColor = Color.LightGreen };
+            btnSave.Click += BtnSave_Click;
+            btnCancel = new Button { Text = "Отмена", Location = new Point(280, y), Size = new Size(100, 40) };
+            btnCancel.Click += (s, e) => this.Close();
+            btnDelete = new Button { Text = "Удалить", Location = new Point(410, y), Size = new Size(100, 40), BackColor = Color.LightCoral };
+            btnDelete.Click += BtnDelete_Click;
+            if (productId == 0) btnDelete.Visible = false;
+
+            // Добавляем все элементы на форму
+            Controls.Add(lblTitle);
+            Controls.Add(lblId); Controls.Add(txtId);
+            Controls.Add(lblArticle); Controls.Add(txtArticle);
+            Controls.Add(lblName); Controls.Add(txtName);
+            Controls.Add(lblCategory); Controls.Add(cmbCategory);
+            Controls.Add(lblDesc); Controls.Add(txtDescription);
+            Controls.Add(lblFab); Controls.Add(cmbFabricator);
+            Controls.Add(lblSup); Controls.Add(cmbSupplier);
+            Controls.Add(lblUnit); Controls.Add(cmbUnit);
+            Controls.Add(lblPrice); Controls.Add(numPrice);
+            Controls.Add(lblCount); Controls.Add(numCount);
+            Controls.Add(lblDiscount); Controls.Add(numDiscount);
+            Controls.Add(pbImage); Controls.Add(btnLoadImage);
+            Controls.Add(btnSave); Controls.Add(btnCancel); Controls.Add(btnDelete);
+        }
+
+        // Загрузка выпадающих списков из БД
+        private void LoadCombo(ComboBox cmb, string table, string idField, string nameField)
+        {
+            using (SqlConnection conn = new SqlConnection(ConnString))
+            {
+                conn.Open();
+                string sql = $"SELECT {idField}, {nameField} FROM {table}";
+                using (SqlCommand cmd = new SqlCommand(sql, conn))
+                using (SqlDataReader reader = cmd.ExecuteReader())
+                {
+                    var list = new System.Collections.ArrayList();
+                    while (reader.Read())
+                        list.Add(new { Id = reader.GetInt32(0), Name = reader.GetString(1) });
+                    cmb.DataSource = list;
+                    cmb.ValueMember = "Id";
+                    cmb.DisplayMember = "Name";
+                }
+            }
+        }
+
+        // Загрузка данных товара при редактировании (с защитой от NULL)
+        private void LoadProductData()
+        {
+            using (SqlConnection conn = new SqlConnection(ConnString))
+            {
+                conn.Open();
+                string sql = "SELECT article, name, category_id, description, fabricator_id, supplier_id, unit_id, price, count, discount, photo_path FROM products WHERE product_id = @id";
+                using (SqlCommand cmd = new SqlCommand(sql, conn))
+                {
+                    cmd.Parameters.AddWithValue("@id", productId);
+                    using (SqlDataReader reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            txtId.Text = productId.ToString();
+                            txtArticle.Text = reader.IsDBNull(0) ? "" : reader.GetString(0);
+                            txtName.Text = reader.IsDBNull(1) ? "" : reader.GetString(1);
+                            cmbCategory.SelectedValue = reader.GetInt32(2);
+                            txtDescription.Text = reader.IsDBNull(3) ? "" : reader.GetString(3);
+                            cmbFabricator.SelectedValue = reader.GetInt32(4);
+                            cmbSupplier.SelectedValue = reader.GetInt32(5);
+                            cmbUnit.SelectedValue = reader.GetInt32(6);
+                            numPrice.Value = reader.GetDecimal(7);
+                            numCount.Value = reader.GetInt32(8);
+                            numDiscount.Value = reader.GetDecimal(9);
+                            oldImagePath = reader.IsDBNull(10) ? null : reader.GetString(10);
+                            if (oldImagePath != null)
+                            {
+                                string full = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, oldImagePath.Replace('/', '\\'));
+                                if (File.Exists(full))
+                                    pbImage.Image = Image.FromFile(full);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Загрузка изображения с проверкой размера 300×200 (требование задания)
+        private void BtnLoadImage_Click(object sender, EventArgs e)
+        {
+            ofd.Filter = "Изображения|*.jpg;*.jpeg;*.png;*.bmp";
+            if (ofd.ShowDialog() == DialogResult.OK)
+            {
+                using (var img = Image.FromFile(ofd.FileName))
+                {
+                    if (img.Width != 300 || img.Height != 200)
+                    {
+                        MessageBox.Show("Изображение должно быть размером 300x200 пикселей.", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+                }
+                pbImage.Image = Image.FromFile(ofd.FileName);
+                newImageFileName = Path.GetFileName(ofd.FileName);
+            }
+        }
+
+        // Сохранение товара (добавление или обновление)
+        private void BtnSave_Click(object sender, EventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(txtArticle.Text) || string.IsNullOrWhiteSpace(txtName.Text))
+            {
+                MessageBox.Show("Заполните артикул и наименование.", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            string imagePath = oldImagePath;
+            if (newImageFileName != null)
+            {
+                string targetDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "images");
+                if (!Directory.Exists(targetDir))
+                    Directory.CreateDirectory(targetDir);
+                string targetPath = Path.Combine(targetDir, newImageFileName);
+                File.Copy(ofd.FileName, targetPath, true);
+                imagePath = $"images/{newImageFileName}";
+                if (oldImagePath != null)
+                {
+                    string oldFull = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, oldImagePath.Replace('/', '\\'));
+                    if (File.Exists(oldFull))
+                        File.Delete(oldFull); // удаляем старое фото при замене
+                }
+            }
+
+            using (SqlConnection conn = new SqlConnection(ConnString))
+            {
+                conn.Open();
+                if (productId == 0) // Добавление
+                {
+                    string sql = @"INSERT INTO products (article, name, category_id, description, fabricator_id, supplier_id, unit_id, price, count, discount, photo_path)
+                                   VALUES (@art, @name, @cat, @desc, @fab, @sup, @unit, @price, @count, @disc, @photo)";
+                    using (SqlCommand cmd = new SqlCommand(sql, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@art", txtArticle.Text);
+                        cmd.Parameters.AddWithValue("@name", txtName.Text);
+                        cmd.Parameters.AddWithValue("@cat", (int)cmbCategory.SelectedValue);
+                        cmd.Parameters.AddWithValue("@desc", txtDescription.Text);
+                        cmd.Parameters.AddWithValue("@fab", (int)cmbFabricator.SelectedValue);
+                        cmd.Parameters.AddWithValue("@sup", (int)cmbSupplier.SelectedValue);
+                        cmd.Parameters.AddWithValue("@unit", (int)cmbUnit.SelectedValue);
+                        cmd.Parameters.AddWithValue("@price", numPrice.Value);
+                        cmd.Parameters.AddWithValue("@count", (int)numCount.Value);
+                        cmd.Parameters.AddWithValue("@disc", numDiscount.Value);
+                        cmd.Parameters.AddWithValue("@photo", imagePath != null ? (object)imagePath : DBNull.Value);
+                        cmd.ExecuteNonQuery();
+                        MessageBox.Show("Товар добавлен.", "Успех", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
+                }
+                else // Редактирование
+                {
+                    string sql = @"UPDATE products SET article=@art, name=@name, category_id=@cat, description=@desc, fabricator_id=@fab,
+                                   supplier_id=@sup, unit_id=@unit, price=@price, count=@count, discount=@disc, photo_path=@photo
+                                   WHERE product_id=@id";
+                    using (SqlCommand cmd = new SqlCommand(sql, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@id", productId);
+                        cmd.Parameters.AddWithValue("@art", txtArticle.Text);
+                        cmd.Parameters.AddWithValue("@name", txtName.Text);
+                        cmd.Parameters.AddWithValue("@cat", (int)cmbCategory.SelectedValue);
+                        cmd.Parameters.AddWithValue("@desc", txtDescription.Text);
+                        cmd.Parameters.AddWithValue("@fab", (int)cmbFabricator.SelectedValue);
+                        cmd.Parameters.AddWithValue("@sup", (int)cmbSupplier.SelectedValue);
+                        cmd.Parameters.AddWithValue("@unit", (int)cmbUnit.SelectedValue);
+                        cmd.Parameters.AddWithValue("@price", numPrice.Value);
+                        cmd.Parameters.AddWithValue("@count", (int)numCount.Value);
+                        cmd.Parameters.AddWithValue("@disc", numDiscount.Value);
+                        cmd.Parameters.AddWithValue("@photo", imagePath != null ? (object)imagePath : DBNull.Value);
+                        cmd.ExecuteNonQuery();
+                        MessageBox.Show("Товар обновлён.", "Успех", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
+                }
+            }
+            this.Close();
+        }
+
+        // Удаление товара с проверкой наличия в заказах
+        private void BtnDelete_Click(object sender, EventArgs e)
+        {
+            using (SqlConnection conn = new SqlConnection(ConnString))
+            {
+                conn.Open();
+                string check = "SELECT COUNT(*) FROM orders_products WHERE product_id = @id";
+                using (SqlCommand cmd = new SqlCommand(check, conn))
+                {
+                    cmd.Parameters.AddWithValue("@id", productId);
+                    int cnt = (int)cmd.ExecuteScalar();
+                    if (cnt > 0)
+                    {
+                        MessageBox.Show("Невозможно удалить товар: он присутствует в заказах.", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return;
+                    }
+                }
+                string del = "DELETE FROM products WHERE product_id = @id";
+                using (SqlCommand cmd = new SqlCommand(del, conn))
+                {
+                    cmd.Parameters.AddWithValue("@id", productId);
+                    cmd.ExecuteNonQuery();
+                    MessageBox.Show("Товар удалён.", "Успех", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+            }
+            this.Close();
+        }
+    }
+}
+Файл 4: OrdersForm.cs (без изменений, но добавлены комментарии)
+csharp
+using System;
+using System.Collections.Generic;
+using System.Data.SqlClient;
+using System.Drawing;
+using System.Windows.Forms;
+
+namespace ExamApp
+{
+    public partial class OrdersForm : Form
+    {
+        // ⚙️ НАСТРОЙКА ПОДКЛЮЧЕНИЯ К БД – замените YOUR_SERVER
+        private const string ConnString = "Data Source=YOUR_SERVER;Initial Catalog=DEE2;Integrated Security=True;Encrypt=False";
+        private FlowLayoutPanel flowOrders;
+        private List<Order> allOrders = new List<Order>();
+
+        public OrdersForm()
+        {
+            this.Text = "Управление заказами";
+            this.Size = new Size(1000, 700);
+            this.StartPosition = FormStartPosition.CenterScreen;
+
+            // Верхняя панель с кнопками
+            Panel top = new Panel { Dock = DockStyle.Top, Height = 50, BackColor = Color.LightSeaGreen };
+            Button btnBack = new Button { Text = "Назад", Location = new Point(10, 10), Size = new Size(80, 30) };
+            btnBack.Click += (s, e) => this.Close();
+            Button btnAdd = new Button { Text = "Добавить заказ", Location = new Point(100, 10), Size = new Size(120, 30) };
+            btnAdd.Visible = (UserSession.CurrentRole == UserSession.Role.admin);
+            btnAdd.Click += (s, e) => { new OrderEditForm(0).ShowDialog(); LoadOrders(); };
+            top.Controls.Add(btnBack);
+            top.Controls.Add(btnAdd);
+
+            // Панель для карточек заказов
+            flowOrders = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                AutoScroll = true,
+                Padding = new Padding(10),
+                FlowDirection = FlowDirection.TopDown,
+                WrapContents = false
+            };
+            Controls.Add(flowOrders);
+            Controls.Add(top);
+            LoadOrders();
+        }
+
+        // Загрузка заказов из БД с защитой от NULL
+        private void LoadOrders()
+        {
+            allOrders.Clear();
+            using (SqlConnection conn = new SqlConnection(ConnString))
+            {
+                conn.Open();
+                string sql = @"SELECT o.order_id, o.order_date, o.delivery_date, o.pickup_point, o.status_id, os.name, 
+                                      c.surname + ' ' + c.name + ' ' + c.patronymic 
+                               FROM orders o
+                               INNER JOIN order_statuses os ON os.status_id = o.status_id
+                               INNER JOIN clients c ON c.client_id = o.client_id";
+                using (SqlCommand cmd = new SqlCommand(sql, conn))
+                using (SqlDataReader reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        Order order = new Order();
+                        order.Id = reader.GetInt32(0);
+                        order.OrderDate = reader.GetDateTime(1);
+                        order.DeliveryDate = reader.IsDBNull(2) ? (DateTime?)null : reader.GetDateTime(2);
+                        order.PickupPoint = reader.IsDBNull(3) ? "" : reader.GetString(3);
+                        order.StatusId = reader.GetInt32(4);
+                        order.StatusName = reader.IsDBNull(5) ? "" : reader.GetString(5);
+                        order.ClientFullName = reader.IsDBNull(6) ? "" : reader.GetString(6);
+                        allOrders.Add(order);
+                    }
+                }
+            }
+            RenderOrders();
+        }
+
+        // Динамическое создание карточек заказов
+        // ⚙️ НАСТРОЙКИ: ширина карточки, цвета, расположение кнопок
+        private void RenderOrders()
+        {
+            flowOrders.Controls.Clear();
+            foreach (Order order in allOrders)
+            {
+                // Ширина карточки: 950 пикселей (можно изменить)
+                Panel card = new Panel { Width = 950, Height = 120, Margin = new Padding(5), BorderStyle = BorderStyle.FixedSingle };
+                Label lblId = new Label { Text = $"Заказ №{order.Id}", Font = new Font("Times New Roman", 12, FontStyle.Bold), Location = new Point(10, 5), Size = new Size(150, 25) };
+                Label lblClient = new Label { Text = $"Клиент: {order.ClientFullName}", Location = new Point(10, 30), Size = new Size(300, 20) };
+                Label lblDate = new Label { Text = $"Дата заказа: {order.OrderDate:dd.MM.yyyy}", Location = new Point(10, 55), Size = new Size(200, 20) };
+                Label lblDelivery = new Label
+                {
+                    Text = order.DeliveryDate.HasValue ? $"Доставка: {order.DeliveryDate.Value:dd.MM.yyyy}" : "Доставка не назначена",
+                    Location = new Point(10, 80),
+                    Size = new Size(200, 20)
+                };
+                Label lblPoint = new Label { Text = $"Пункт выдачи: {order.PickupPoint}", Location = new Point(250, 30), Size = new Size(250, 20) };
+                Label lblStatus = new Label { Text = $"Статус: {order.StatusName}", Location = new Point(250, 55), Size = new Size(200, 20), Font = new Font("Times New Roman", 10, FontStyle.Italic) };
+
+                Button btnEdit = new Button { Text = "Редактировать", Location = new Point(600, 15), Size = new Size(120, 30) };
+                btnEdit.Visible = (UserSession.CurrentRole == UserSession.Role.admin);
+                btnEdit.Click += (s, e) => { new OrderEditForm(order.Id).ShowDialog(); LoadOrders(); };
+
+                Button btnDelete = new Button { Text = "Удалить", Location = new Point(600, 55), Size = new Size(120, 30), BackColor = Color.LightCoral };
+                btnDelete.Visible = (UserSession.CurrentRole == UserSession.Role.admin);
+                btnDelete.Click += (s, e) =>
+                {
+                    if (MessageBox.Show("Удалить заказ?", "Подтверждение", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+                    {
+                        using (SqlConnection conn = new SqlConnection(ConnString))
+                        {
+                            conn.Open();
+                            string sql = "DELETE FROM orders WHERE order_id = @id";
+                            using (SqlCommand cmd = new SqlCommand(sql, conn))
+                            {
+                                cmd.Parameters.AddWithValue("@id", order.Id);
+                                cmd.ExecuteNonQuery();
+                            }
+                        }
+                        LoadOrders();
+                    }
+                };
+
+                card.Controls.Add(lblId);
+                card.Controls.Add(lblClient);
+                card.Controls.Add(lblDate);
+                card.Controls.Add(lblDelivery);
+                card.Controls.Add(lblPoint);
+                card.Controls.Add(lblStatus);
+                card.Controls.Add(btnEdit);
+                card.Controls.Add(btnDelete);
+                flowOrders.Controls.Add(card);
+            }
+        }
+    }
+
+    public class Order
+    {
+        public int Id { get; set; }
+        public DateTime OrderDate { get; set; }
+        public DateTime? DeliveryDate { get; set; }
+        public string PickupPoint { get; set; }
+        public int StatusId { get; set; }
+        public string StatusName { get; set; }
+        public string ClientFullName { get; set; }
+    }
+
+    public partial class OrderEditForm : Form
+    {
+        private const string ConnString = "Data Source=YOUR_SERVER;Initial Catalog=DEE2;Integrated Security=True;Encrypt=False";
+        private int orderId;
+        private ComboBox cmbStatus, cmbClient;
+        private DateTimePicker dtpOrderDate, dtpDeliveryDate;
+        private TextBox txtPickupPoint;
+        private Button btnSave, btnCancel;
+
+        public OrderEditForm(int id = 0)
+        {
+            orderId = id;
+            this.Text = orderId > 0 ? "Редактирование заказа" : "Новый заказ";
+            this.Size = new Size(500, 350);
+            this.StartPosition = FormStartPosition.CenterScreen;
+            this.FormBorderStyle = FormBorderStyle.FixedDialog;
+            this.MaximizeBox = false;
+            InitializeControls();
+            if (orderId > 0)
+                LoadOrderData();
+        }
+
+        private void InitializeControls()
+        {
+            int y = 20;
+            Label lblOrderDate = new Label { Text = "Дата заказа:", Location = new Point(20, y), Size = new Size(100, 25) };
+            dtpOrderDate = new DateTimePicker { Location = new Point(130, y), Size = new Size(200, 25), Format = DateTimePickerFormat.Short };
+            y += 35;
+
+            Label lblDelivery = new Label { Text = "Дата доставки:", Location = new Point(20, y), Size = new Size(100, 25) };
+            dtpDeliveryDate = new DateTimePicker { Location = new Point(130, y), Size = new Size(200, 25), Format = DateTimePickerFormat.Short, ShowCheckBox = true, Checked = false };
+            y += 35;
+
+            Label lblPoint = new Label { Text = "Пункт выдачи:*", Location = new Point(20, y), Size = new Size(100, 25) };
+            txtPickupPoint = new TextBox { Location = new Point(130, y), Size = new Size(200, 25) };
+            y += 35;
+
+            Label lblStatus = new Label { Text = "Статус:*", Location = new Point(20, y), Size = new Size(100, 25) };
+            cmbStatus = new ComboBox { Location = new Point(130, y), Size = new Size(200, 25), DropDownStyle = ComboBoxStyle.DropDownList };
+            LoadStatuses();
+            y += 35;
+
+            Label lblClient = new Label { Text = "Клиент:*", Location = new Point(20, y), Size = new Size(100, 25) };
+            cmbClient = new ComboBox { Location = new Point(130, y), Size = new Size(200, 25), DropDownStyle = ComboBoxStyle.DropDownList };
+            LoadClients();
+            y += 45;
+
+            btnSave = new Button { Text = "Сохранить", Location = new Point(100, y), Size = new Size(100, 35), BackColor = Color.LightGreen };
+            btnSave.Click += BtnSave_Click;
+            btnCancel = new Button { Text = "Отмена", Location = new Point(230, y), Size = new Size(100, 35) };
+            btnCancel.Click += (s, e) => this.Close();
+
+            Controls.Add(lblOrderDate); Controls.Add(dtpOrderDate);
+            Controls.Add(lblDelivery); Controls.Add(dtpDeliveryDate);
+            Controls.Add(lblPoint); Controls.Add(txtPickupPoint);
+            Controls.Add(lblStatus); Controls.Add(cmbStatus);
+            Controls.Add(lblClient); Controls.Add(cmbClient);
+            Controls.Add(btnSave); Controls.Add(btnCancel);
+        }
+
+        private void LoadStatuses()
+        {
+            using (SqlConnection conn = new SqlConnection(ConnString))
+            {
+                conn.Open();
+                string sql = "SELECT status_id, name FROM order_statuses";
+                using (SqlCommand cmd = new SqlCommand(sql, conn))
+                using (SqlDataReader reader = cmd.ExecuteReader())
+                {
+                    var list = new System.Collections.ArrayList();
+                    while (reader.Read())
+                        list.Add(new { Id = reader.GetInt32(0), Name = reader.GetString(1) });
+                    cmbStatus.DataSource = list;
+                    cmbStatus.ValueMember = "Id";
+                    cmbStatus.DisplayMember = "Name";
+                }
+            }
+        }
+
+        private void LoadClients()
+        {
+            using (SqlConnection conn = new SqlConnection(ConnString))
+            {
+                conn.Open();
+                string sql = "SELECT client_id, surname + ' ' + name + ' ' + patronymic as FullName FROM clients";
+                using (SqlCommand cmd = new SqlCommand(sql, conn))
+                using (SqlDataReader reader = cmd.ExecuteReader())
+                {
+                    var list = new System.Collections.ArrayList();
+                    while (reader.Read())
+                        list.Add(new { Id = reader.GetInt32(0), Name = reader.GetString(1) });
+                    cmbClient.DataSource = list;
+                    cmbClient.ValueMember = "Id";
+                    cmbClient.DisplayMember = "Name";
+                }
+            }
+        }
+
+        private void LoadOrderData()
+        {
+            using (SqlConnection conn = new SqlConnection(ConnString))
+            {
+                conn.Open();
+                string sql = "SELECT order_date, delivery_date, pickup_point, status_id, client_id FROM orders WHERE order_id = @id";
+                using (SqlCommand cmd = new SqlCommand(sql, conn))
+                {
+                    cmd.Parameters.AddWithValue("@id", orderId);
+                    using (SqlDataReader reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            dtpOrderDate.Value = reader.GetDateTime(0);
+                            if (!reader.IsDBNull(1))
+                            {
+                                dtpDeliveryDate.Value = reader.GetDateTime(1);
+                                dtpDeliveryDate.Checked = true;
+                            }
+                            txtPickupPoint.Text = reader.IsDBNull(2) ? "" : reader.GetString(2);
+                            cmbStatus.SelectedValue = reader.GetInt32(3);
+                            cmbClient.SelectedValue = reader.GetInt32(4);
+                        }
+                    }
+                }
+            }
+        }
+
+        private void BtnSave_Click(object sender, EventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(txtPickupPoint.Text) || cmbStatus.SelectedValue == null || cmbClient.SelectedValue == null)
+            {
+                MessageBox.Show("Заполните все обязательные поля.", "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            DateTime? delivery = dtpDeliveryDate.Checked ? (DateTime?)dtpDeliveryDate.Value : null;
+            using (SqlConnection conn = new SqlConnection(ConnString))
+            {
+                conn.Open();
+                if (orderId == 0)
+                {
+                    string sql = @"INSERT INTO orders (order_date, delivery_date, pickup_point, status_id, client_id)
+                                   VALUES (@od, @dd, @pp, @sid, @cid)";
+                    using (SqlCommand cmd = new SqlCommand(sql, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@od", dtpOrderDate.Value);
+                        cmd.Parameters.AddWithValue("@dd", delivery.HasValue ? (object)delivery.Value : DBNull.Value);
+                        cmd.Parameters.AddWithValue("@pp", txtPickupPoint.Text);
+                        cmd.Parameters.AddWithValue("@sid", (int)cmbStatus.SelectedValue);
+                        cmd.Parameters.AddWithValue("@cid", (int)cmbClient.SelectedValue);
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+                else
+                {
+                    string sql = @"UPDATE orders SET order_date=@od, delivery_date=@dd, pickup_point=@pp, status_id=@sid, client_id=@cid
+                                   WHERE order_id=@id";
+                    using (SqlCommand cmd = new SqlCommand(sql, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@id", orderId);
+                        cmd.Parameters.AddWithValue("@od", dtpOrderDate.Value);
+                        cmd.Parameters.AddWithValue("@dd", delivery.HasValue ? (object)delivery.Value : DBNull.Value);
+                        cmd.Parameters.AddWithValue("@pp", txtPickupPoint.Text);
+                        cmd.Parameters.AddWithValue("@sid", (int)cmbStatus.SelectedValue);
+                        cmd.Parameters.AddWithValue("@cid", (int)cmbClient.SelectedValue);
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+            }
+            MessageBox.Show("Сохранено.", "Успех", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            this.Close();
+        }
+    }
+}
